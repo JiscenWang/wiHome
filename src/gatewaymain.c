@@ -1,30 +1,6 @@
-/* vim: set et sw=4 ts=4 sts=4 : */
-/********************************************************************\
- * This program is free software; you can redistribute it and/or    *
- * modify it under the terms of the GNU General Public License as   *
- * published by the Free:Software Foundation; either version 2 of   *
- * the License, or (at your option) any later version.              *
- *                                                                  *
- * This program is distributed in the hope that it will be useful,  *
- * but WITHOUT ANY WARRANTY; without even the implied warranty of   *
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the    *
- * GNU General Public License for more details.                     *
- *                                                                  *
- * You should have received a copy of the GNU General Public License*
- * along with this program; if not, contact:                        *
- *                                                                  *
- * Free Software Foundation           Voice:  +1-617-542-5942       *
- * 59 Temple Place - Suite 330        Fax:    +1-617-542-2652       *
- * Boston, MA  02111-1307,  USA       gnu@gnu.org                   *
- *                                                                  *
- \********************************************************************/
-
-/** @internal
-  @file jgateway.c
-  @brief Main loop
-  @author Copyright (C) 2004 Philippe April <papril777@yahoo.com>
-  @author Copyright (C) 2004 Alexandre Carmel-Veilleux <acv@miniguru.ca>
- */
+/*
+ * Jerome Build
+*/
 
 /*####Jerome, checked ongoing*/
 
@@ -35,34 +11,18 @@
 #include <signal.h>
 #include <errno.h>
 #include <time.h>
-
-/* for strerror() */
 #include <string.h>
-
-/* for wait() */
 #include <sys/wait.h>
-
-/* for unix socket communication*/
 #include <sys/socket.h>
 #include <sys/un.h>
 
 #include "common.h"
-#include "httpd.h"
-#include "safe.h"
 #include "debug.h"
-#include "jconfig.h"
-#include "jgateway.h"
-#include "jhttp.h"
-#include "client_list.h"
-#include "wdctl_thread.h"
-#include "ping_thread.h"
-#include "util.h"
+#include "homeconfig.h"
+#include "gatewaymain.h"
 
-/*Jerome: Add J-module*/
-#include "jnet.h"
-#include "jmodule.h"
-#include "jdhcp.h"
-#include "jauth.h"
+#include "homenet.h"
+#include "homeauth.h"
 #include "../config.h"
 
 struct tun_t *tun;                /* TUN instance            */
@@ -93,6 +53,7 @@ static int iptables_do_command(const char *format, ...);
 
 
 static void usage(void);
+static void parse_commandline(int argc, char **argv);
 
 /** @internal
  * @brief Print usage
@@ -100,25 +61,61 @@ static void usage(void);
  * Prints usage, called when wifidog is run with -h or with an unknown option
  */
 /*####Jerome, checked over*/
+int
+main(int argc, char **argv)
+{
+
+    s_config *config = config_get_config();
+    /*Jerome: tbd for finishing the configure parameters*/
+    config_init();
+
+    parse_commandline(argc, argv);
+
+    /* Initialize the config */
+    /*Jerome: tbd for reading the configure file*/
+    config_read(config->configfile);
+    config_validate();
+
+    /* Initializes the linked list of connected clients */
+    client_list_init();
+
+    /* Init the signals to catch chld/quit/etc */
+    init_signals();
+
+    if (config->daemon) {
+
+        debug(LOG_INFO, "Forking into background");
+
+        switch (safe_fork()) {
+        case 0:                /* child */
+            setsid();
+//            append_x_restartargv();
+            main_loop();
+            break;
+
+        default:               /* parent */
+            exit(0);
+            break;
+        }
+    } else {
+//        append_x_restartargv();
+        main_loop();
+    }
+
+    return (0);                 /* never reached */
+}
+
 static void
 usage(void)
 {
-    fprintf(stdout, "Usage: wifidog [options]\n");
+    fprintf(stdout, "wiHome [options]\n");
     fprintf(stdout, "\n");
     fprintf(stdout, "options:\n");
     fprintf(stdout, "  -f            Run in foreground\n");
     fprintf(stdout, "  -d <level>    Debug level\n");
     fprintf(stdout, "  -s            Log to syslog\n");
     fprintf(stdout, "  -h            Print usage\n");
-    fprintf(stdout, "  -v            Print version information\n");
     fprintf(stdout, "\n");
-}
-
-
-int
-main(int argc, char **argv)
-{
-    return gw_main(argc, argv);
 }
 
 
@@ -156,11 +153,6 @@ parse_commandline(int argc, char **argv)
 
         case 's':
             debugconf.log_syslog = 1;
-            break;
-
-        case 'v':
-            fprintf(stdout, "This is WiFiDog version " VERSION "\n");
-            exit(1);
             break;
 
         default:
@@ -822,42 +814,4 @@ int
 gw_main(int argc, char **argv)
 {
 
-    s_config *config = config_get_config();
-    /*Jerome: tbd for finishing the configure parameters*/
-    config_init();
-
-    parse_commandline(argc, argv);
-
-    /* Initialize the config */
-    /*Jerome: tbd for reading the configure file*/
-    config_read(config->configfile);
-    config_validate();
-
-    /* Initializes the linked list of connected clients */
-    client_list_init();
-
-    /* Init the signals to catch chld/quit/etc */
-    init_signals();
-
-    if (config->daemon) {
-
-        debug(LOG_INFO, "Forking into background");
-
-        switch (safe_fork()) {
-        case 0:                /* child */
-            setsid();
-//            append_x_restartargv();
-            main_loop();
-            break;
-
-        default:               /* parent */
-            exit(0);
-            break;
-        }
-    } else {
-//        append_x_restartargv();
-        main_loop();
-    }
-
-    return (0);                 /* never reached */
 }

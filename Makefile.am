@@ -5,8 +5,8 @@ AUTOMAKE_OPTIONS = foreign
 SUBDIRS = libhttpd src . 
 
 EXTRA_DIST = \
-  wiHome.spec.in \
-  wiHome.spec \
+  WirelessHome.spec.in \
+  WirelessHome.spec \
   config \
-  wiHome.conf
+  WirelessHome.conf
 

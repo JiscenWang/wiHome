@@ -1,31 +1,6 @@
-/* vim: set et sw=4 ts=4 sts=4 : */
-/********************************************************************\
- * This program is free software; you can redistribute it and/or    *
- * modify it under the terms of the GNU General Public License as   *
- * published by the Free Software Foundation; either version 2 of   *
- * the License, or (at your option) any later version.              *
- *                                                                  *
- * This program is distributed in the hope that it will be useful,  *
- * but WITHOUT ANY WARRANTY; without even the implied warranty of   *
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the    *
- * GNU General Public License for more details.                     *
- *                                                                  *
- * You should have received a copy of the GNU General Public License*
- * along with this program; if not, contact:                        *
- *                                                                  *
- * Free Software Foundation           Voice:  +1-617-542-5942       *
- * 59 Temple Place - Suite 330        Fax:    +1-617-542-2652       *
- * Boston, MA  02111-1307,  USA       gnu@gnu.org                   *
- *                                                                  *
- \********************************************************************/
-
-/* $Id$ */
-/** @file jconfig.c
-  @brief Config file parsing
-  @author Copyright (C) 2004 Philippe April <papril777@yahoo.com>
-  @author Copyright (C) 2007 Benoit Grégoire, Technologies Coeus inc.
- */
-
+/*
+ * Jerome Build
+*/
 
 /*####Jerome, checked onging*/
 
@@ -41,28 +16,15 @@
 #include <ctype.h>
 
 #include "common.h"
-#include "safe.h"
 #include "debug.h"
-#include "jconfig.h"
-#include "jhttp.h"
-#include "config.h"
+#include "homeconfig.h"
 
-#include "util.h"
-#include "jdhcp.h"
+#include "../config.h"
+
 
 /** @internal
  * Holds the current configuration of the gateway */
-static s_config config;
-
-/**
- * Mutex for the configuration file, used by the auth_servers related
- * functions. */
-pthread_mutex_t config_mutex = PTHREAD_MUTEX_INITIALIZER;
-
-/** @internal
- * A flag.  If set to 1, there are missing or empty mandatory parameters in the config
- */
-static int missing_parms;
+static s_gwOptions gwOptions;
 
 /** @internal
  The different configuration options */
@@ -75,40 +37,12 @@ typedef enum {
 	oInternalInterface,
     oGatewayAddress,
     oGatewayPort,
-    oDeltaTraffic,
-	/*Jerome reomved
-    oAuthServer,
-    oAuthServHostname,
-    oAuthServSSLAvailable,
-    oAuthServSSLPort,
-    oAuthServHTTPPort,
-    oAuthServPath,
-    oAuthServLoginScriptPathFragment,
-    oAuthServPortalScriptPathFragment,
-    oAuthServMsgScriptPathFragment,
-    oAuthServPingScriptPathFragment,
-    oAuthServAuthScriptPathFragment,
-    end, jerome*/
     oHTTPDMaxConn,
-    oHTTPDName,
-    oHTTPDRealm,
-    oHTTPDUsername,
-    oHTTPDPassword,
     oClientTimeout,
     oCheckInterval,
-    oWdctlSocket,
     oSyslogFacility,
-    oFirewallRule,
-    oFirewallRuleSet,
-    oTrustedMACList,
     oPopularServers,
     oHtmlMessageFile,
-    oProxyPort,
-    oSSLPeerVerification,
-    oSSLCertPath,
-    oSSLAllowedCipherList,
-    oSSLUseSNI,
-/*Jerome Added*/
     oLocalAuthPort,
 	oInternalIfDev
 } OpCodes;
@@ -118,8 +52,7 @@ typedef enum {
 static const struct {
     const char *name;
     OpCodes opcode;
-} keywords[] = {
-    {"deltatraffic", oDeltaTraffic}, {
+} keywords[] = {{
     "daemon", oDaemon}, {
     "debuglevel", oDebugLevel}, {
     "externalinterface", oExternalInterface}, {
@@ -128,26 +61,12 @@ static const struct {
     "gatewayaddress", oGatewayAddress}, {
     "gatewayport", oGatewayPort}, {
     "httpdmaxconn", oHTTPDMaxConn}, {
-    "httpdname", oHTTPDName}, {
-    "httpdrealm", oHTTPDRealm}, {
-    "httpdusername", oHTTPDUsername}, {
-    "httpdpassword", oHTTPDPassword}, {
     "clienttimeout", oClientTimeout}, {
     "checkinterval", oCheckInterval}, {
     "syslogfacility", oSyslogFacility}, {
-    "wdctlsocket", oWdctlSocket}, {
-    "firewallruleset", oFirewallRuleSet}, {
-    "firewallrule", oFirewallRule}, {
-    "trustedmaclist", oTrustedMACList}, {
     "popularservers", oPopularServers}, {
     "htmlmessagefile", oHtmlMessageFile}, {
-    "proxyport", oProxyPort}, {
-    "sslpeerverification", oSSLPeerVerification}, {
-    "sslcertpath", oSSLCertPath}, {
-    "sslallowedcipherlist", oSSLAllowedCipherList}, {
-    "sslusesni", oSSLUseSNI},
-	/*Jerome Added*/
-	{"localauthport", oLocalAuthPort}, {
+    "localauthport", oLocalAuthPort}, {
     "internalinterfacedev", oInternalIfDev},{
     NULL, oBadOption},};
 
@@ -160,92 +79,71 @@ static void parse_popular_servers(const char *);
 static void validate_popular_servers(void);
 static void add_popular_server(const char *);
 
-static OpCodes config_parse_token(const char *, const char *, int);
+static OpCodes option_parse_token(const char *, const char *, int);
 
 /** Accessor for the current gateway configuration
 @return:  A pointer to the current config.  The pointer isn't opaque, but should be treated as READ-ONLY
  */
-s_config *
-/*####Jerome, check over*/
-config_get_config(void)
+s_gwOptions *get_gwOptions(void)
 {
-    return &config;
+    return &gwOptions;
 }
 
 /** Sets the default config parameters and initialises the configuration system */
 /*####Jerome, check ongoing*/
-void
-config_init(void)
+void initOptions(void)
 {
-	/*####Jerome, checked begin*/
-	memset(&config, 0, sizeof(s_config));
+	memset(&gwOptions, 0, sizeof(s_gwOptions));
     //config.external_interface = NULL;  /*External IF must be set later in the conf file*/
     //config.internalif = NULL;	/*Internal IF must be set later in the conf file*/
 
     debug(LOG_DEBUG, "Setting default config parameters of conf file %s and html file",
     		DEFAULT_CONFIGFILE, DEFAULT_HTMLMSGFILE);
-    config.configfile = safe_strdup(DEFAULT_CONFIGFILE);
-    config.htmlmsgfile = safe_strdup(DEFAULT_HTMLMSGFILE);
+    gwOptions.configfile = safe_strdup(DEFAULT_CONFIGFILE);
+    gwOptions.htmlmsgfile = safe_strdup(DEFAULT_HTMLMSGFILE);
 
     //config.gw_interface = NULL;/*without needing initialized to be zero*/
     //config.gw_address = NULL;/*without needing initialized to be zero*/
 
-    config.gw_port = DEFAULT_GATEWAYPORT;
-    config.gw_id = DEFAULT_GATEWAYID;
+    gwOptions.tundevname = safe_strdup(DEFAULT_GATEWAYID);
+    gwOptions.tundevip.s_addr = inet_addr(WIRELESS_GATEWAY_IP);
+    gwOptions.netmask.s_addr = inet_addr("255.255.255.0");
 
-    config.auth_port = DEFAULT_LOCALAUTHPORT;
+    gwOptions.gw_id = gwOptions.tundevname;
+    gwOptions.gw_interface = gwOptions.tundevname;
+    gwOptions.gw_address = safe_strdup(WIRELESS_GATEWAY_IP);
 
-    config.httpdname = NULL;
-    config.popular_servers = NULL;
+    gwOptions.gw_port = DEFAULT_CAPTIVEPORT;
 
-    config.daemon = DEFAULT_DAEMON;
+    gwOptions.auth_port = DEFAULT_LOCALAUTHPORT;
+
+    gwOptions.httpdname = gwOptions.gw_id;
+
+    gwOptions.popular_servers = NULL;
+
+    gwOptions.daemon = DEFAULT_DAEMON;
+
+    gwOptions.dhcpdynip = safe_strdup(DHCP_DYN_IP_POOL);
+    gwOptions.dns1.s_addr = inet_addr(GW_DEFAULT_DNS1);
+    gwOptions.dns2.s_addr = inet_addr(GW_DEFAULT_DNS2);
+    gwOptions.dhcpgwport = DEFAULT_DHCP_GW_PORT;
+
+    //gwOptions.dhcpgwip = NULL;  /*Jerome TBD for DHCP relay mode*/
+//    gwOptions.max_clients = DHCP_MAX_CLIENTS;
+
+
+    gwOptions.redirhost = safe_strdup(GW_REDIR_HOST);
+    gwOptions.httpdmaxconn = DEFAULT_HTTPDMAXCONN;
+
+    gwOptions.auth_servers = NULL;
+
+    gwOptions.clienttimeout = DEFAULT_CLIENTTIMEOUT;
+    gwOptions.checkinterval = DEFAULT_CHECKINTERVAL;
+
+    gwOptions.pidfile = NULL;
+    gwOptions.whome_sock = safe_strdup(DEFAULT_WHOME_SOCK);
+
     debugconf.debuglevel = DEFAULT_DEBUGLEVEL;
-
-    /*J-module add*/
-    config.tundevname = safe_strdup(DEFAULT_TUNDEV_NAME);
-    config.tundevip.s_addr = inet_addr(DHCP_TUN_AND_DOG);
-    config.dhcplisten.s_addr = inet_addr(DHCP_DHCP_LISTENR);
-    config.netmask.s_addr = inet_addr("255.255.255.0");
-
-    config.dhcpdynip = safe_strdup(DHCP_DYN_IP_POOL);
-
-    //config.dhcpgwip = NULL;  /*Jerome TBD for DHCP relay mode*/
-    config.dhcpgwport = DEFAULT_DHCP_GW_PORT;
-
-//    config.max_clients = DHCP_MAX_CLIENTS;
-
-    /*Reset wifidog's IF and Address to TUN's*/
-    config.gw_interface = config.tundevname;
-    config.gw_address = safe_strdup(DHCP_TUN_AND_DOG);
-    config.gw_id = config.tundevname;
-    config.dns1.s_addr = inet_addr(DHCP_CLIENT_DNS1);
-    config.dns2.s_addr = inet_addr(DHCP_CLIENT_DNS2);
-
-    config.redirhost = safe_strdup(DHCP_REDIR_HOST);
-	/*####Jerome, checked end*/
-
-    config.httpdmaxconn = DEFAULT_HTTPDMAXCONN;
-    config.auth_servers = NULL;
-
-    config.httpdrealm = DEFAULT_HTTPDNAME;
-    config.httpdusername = NULL;
-    config.httpdpassword = NULL;
-    config.clienttimeout = DEFAULT_CLIENTTIMEOUT;
-    config.checkinterval = DEFAULT_CHECKINTERVAL;
-
-    config.pidfile = NULL;
-    config.wdctl_sock = safe_strdup(DEFAULT_WDCTL_SOCK);
-    config.internal_sock = safe_strdup(DEFAULT_INTERNAL_SOCK);
-    config.rulesets = NULL;
-    config.trustedmaclist = NULL;
-    config.proxy_port = 0;
-//    config.ssl_certs = safe_strdup(DEFAULT_AUTHSERVSSLCERTPATH);
-//    config.ssl_verify = DEFAULT_AUTHSERVSSLPEERVER;
-//    config.deltatraffic = DEFAULT_DELTATRAFFIC;
-    config.ssl_cipher_list = NULL;
-//    config.arp_table_path = safe_strdup(DEFAULT_ARPTABLE);
-//    config.ssl_use_sni = DEFAULT_AUTHSERVSSLSNI;
-
     debugconf.log_stderr = 1;
     debugconf.syslog_facility = DEFAULT_SYSLOG_FACILITY;
     debugconf.log_syslog = DEFAULT_LOG_SYSLOG;
@@ -254,10 +152,8 @@ config_init(void)
 /** @internal
 Parses a single token from the config file
 */
-static OpCodes
-config_parse_token(const char *cp, const char *filename, int linenum)
+static OpCodes option_parse_token(const char *cp, const char *filename, int linenum)
 {
-	/*####Jerome, checked over*/
     int i;
 
     for (i = 0; keywords[i].name; i++)
@@ -321,7 +217,7 @@ parse_internal_interface(FILE * file, const char *filename, int *linenum)
             switch (opcode) {
             case oInternalIfDev:
                  for (i =0; i < MAX_RAWIF; i++){
-                	config.internalif[i] = safe_strdup(p2);
+                	 gwOptions.internalif[i] = safe_strdup(p2);
                 }
                 if (i == MAX_RAWIF) {
                     debug(LOG_DEBUG, "MAX_RAWIF %d internal ports were added!", i);
@@ -340,7 +236,7 @@ parse_internal_interface(FILE * file, const char *filename, int *linenum)
         }
     }
 
-    if(config.internalif[0] == NULL){
+    if(gwOptions.internalif[0] == NULL){
     	debug(LOG_ERR, "Configuration without Internal Interfaces. Exiting...");
         exit(-1);
     }
@@ -369,28 +265,12 @@ Advance to the next word
 	} \
 } while (0)
 
-
-t_firewall_rule *
-get_ruleset(const char *ruleset)
-{
-    t_firewall_ruleset *tmp;
-
-    for (tmp = config.rulesets; tmp != NULL && strcmp(tmp->name, ruleset) != 0; tmp = tmp->next) ;
-
-    if (tmp == NULL)
-        return NULL;
-
-    return (tmp->rules);
-}
-
 /**
 @param filename Full path of the configuration file to be read 
 */
-/*####Jerome, check ongoing*/
 void
 config_read(const char *filename)
 {
-	/*####Jerome, checked begin*/
     FILE *fd;
     char line[MAX_BUF], *s, *p1, *p2, *tmpadr, *rawarg = NULL;
     int linenum = 0, opcode, value;
@@ -447,9 +327,9 @@ config_read(const char *filename)
 
                 switch (opcode) {
                 case oDaemon:
-                    if (config.daemon == -1 && ((value = parse_boolean_value(p1)) != -1)) {
-                        config.daemon = value;
-                        if (config.daemon > 0) {
+                    if (gwOptions.daemon == -1 && ((value = parse_boolean_value(p1)) != -1)) {
+                    	gwOptions.daemon = value;
+                        if (gwOptions.daemon > 0) {
                             debugconf.log_stderr = 0;
                         } else {
                             debugconf.log_stderr = 1;
@@ -458,7 +338,7 @@ config_read(const char *filename)
                     break;
                 /*J-Module changes it to be mandatory, sharing this IF between wifidog and J-Module*/
                 case oExternalInterface:
-                    config.external_interface = safe_strdup(p1);
+                	gwOptions.external_interface = safe_strdup(p1);
                     break;
                 case oInternalInterface:
                     /*J-Module changes it to internal interface*/
@@ -466,104 +346,42 @@ config_read(const char *filename)
                     break;
                 case oGatewayAddress:
                     /*Jerome: J-Module changes it to TUN IP*/
-                   config.tundevip.s_addr = inet_addr(safe_strdup(p1));
-                   config.gw_address = safe_strdup(p1);
+                	gwOptions.tundevip.s_addr = inet_addr(safe_strdup(p1));
+                	gwOptions.gw_address = safe_strdup(p1);
                     break;
                 case oGatewayPort:
-                    sscanf(p1, "%d", &config.gw_port);
+                    sscanf(p1, "%d", &gwOptions.gw_port);
                     break;
                 case oGatewayID:
-                    config.gw_id = safe_strdup(p1);
-                    config.tundevname = config.gw_id;
+                	gwOptions.gw_id = safe_strdup(p1);
+                	gwOptions.tundevname = gwOptions.gw_id;
                     break;
                 case oLocalAuthPort:
-                    sscanf(p1, "%d", &config.auth_port);
+                    sscanf(p1, "%d", &gwOptions.auth_port);
                     break;
 
-         /*####Jerome, checked end*/
-
-                case oDeltaTraffic:
-                    config.deltatraffic = parse_boolean_value(p1);
-                    break;
-
-                case oTrustedMACList:
-//                    parse_trusted_mac_list(p1);
-                    break;
                 case oPopularServers:
 //                    parse_popular_servers(rawarg);
                     break;
-                case oHTTPDName:
-                    config.httpdname = safe_strdup(p1);
-                    break;
+
                 case oHTTPDMaxConn:
-                    sscanf(p1, "%d", &config.httpdmaxconn);
+                    sscanf(p1, "%d", &gwOptions.httpdmaxconn);
                     break;
-                case oHTTPDRealm:
-                    config.httpdrealm = safe_strdup(p1);
-                    break;
-                case oHTTPDUsername:
-                    config.httpdusername = safe_strdup(p1);
-                    break;
-                case oHTTPDPassword:
-                    config.httpdpassword = safe_strdup(p1);
-                    break;
+
                 case oCheckInterval:
-                    sscanf(p1, "%d", &config.checkinterval);
+                    sscanf(p1, "%d", &gwOptions.checkinterval);
                     break;
-                case oWdctlSocket:
-                    free(config.wdctl_sock);
-                    config.wdctl_sock = safe_strdup(p1);
-                    break;
+
                 case oClientTimeout:
-                    sscanf(p1, "%d", &config.clienttimeout);
+                    sscanf(p1, "%d", &gwOptions.clienttimeout);
                     break;
                 case oSyslogFacility:
                     sscanf(p1, "%d", &debugconf.syslog_facility);
                     break;
                 case oHtmlMessageFile:
-                    config.htmlmsgfile = safe_strdup(p1);
+                	gwOptions.htmlmsgfile = safe_strdup(p1);
                     break;
-                case oProxyPort:
-                    sscanf(p1, "%d", &config.proxy_port);
-                    break;
-                case oSSLCertPath:
-                    config.ssl_certs = safe_strdup(p1);
-#ifndef USE_CYASSL
-                    debug(LOG_WARNING, "SSLCertPath is set but not SSL compiled in. Ignoring!");
-#endif
-                    break;
-                case oSSLPeerVerification:
-                    config.ssl_verify = parse_boolean_value(p1);
-                    if (config.ssl_verify < 0) {
-                        debug(LOG_WARNING, "Bad syntax for Parameter: SSLPeerVerification on line %d " "in %s."
-                            "The syntax is yes or no." , linenum, filename);
-                        exit(-1);
-                    }
-#ifndef USE_CYASSL
-                    debug(LOG_WARNING, "SSLPeerVerification is set but no SSL compiled in. Ignoring!");
-#endif
-                    break;
-                case oSSLAllowedCipherList:
-                    config.ssl_cipher_list = safe_strdup(p1);
-#ifndef USE_CYASSL
-                    debug(LOG_WARNING, "SSLAllowedCipherList is set but no SSL compiled in. Ignoring!");
-#endif
-                    break;
-                case oSSLUseSNI:
-                    config.ssl_use_sni = parse_boolean_value(p1);
-                    if (config.ssl_use_sni < 0) {
-                        debug(LOG_WARNING, "Bad syntax for Parameter: SSLUseSNI on line %d " "in %s."
-                            "The syntax is yes or no." , linenum, filename);
-                        exit(-1);
-                    }
-#ifndef USE_CYASSL
-                    debug(LOG_WARNING, "SSLUseSNI is set but no SSL compiled in. Ignoring!");
-#else
-#ifndef HAVE_SNI
-                    debug(LOG_WARNING, "SSLUseSNI is set but no CyaSSL SNI enabled. Ignoring!");
-#endif
-#endif
-                    break;
+
                 case oBadOption:
                     /* FALL THROUGH */
                 default:
@@ -578,11 +396,6 @@ config_read(const char *filename)
             free(rawarg);
             rawarg = NULL;
         }
-    }
-
-    if (config.httpdusername && !config.httpdpassword) {
-        debug(LOG_ERR, "HTTPDUserName requires a HTTPDPassword to be set.");
-        exit(-1);
     }
 
     fclose(fd);
@@ -624,81 +437,6 @@ check_mac_format(char *possiblemac)
 }
 
 /** @internal
- * Parse the trusted mac list.
- */
-static void
-parse_trusted_mac_list(const char *ptr)
-{
-    char *ptrcopy = NULL;
-    char *possiblemac = NULL;
-    char *mac = NULL;
-    t_trusted_mac *p = NULL;
-
-    debug(LOG_DEBUG, "Parsing string [%s] for trusted MAC addresses", ptr);
-
-    mac = safe_malloc(18);
-
-    /* strsep modifies original, so let's make a copy */
-    ptrcopy = safe_strdup(ptr);
-
-    while ((possiblemac = strsep(&ptrcopy, ","))) {
-        /* check for valid format */
-        if (!check_mac_format(possiblemac)) {
-            debug(LOG_ERR,
-                  "[%s] not a valid MAC address to trust. See option TrustedMACList in wifidog.conf for correct this mistake.",
-                  possiblemac);
-            free(ptrcopy);
-            free(mac);
-            return;
-        } else {
-            if (sscanf(possiblemac, " %17[A-Fa-f0-9:]", mac) == 1) {
-                /* Copy mac to the list */
-
-                debug(LOG_DEBUG, "Adding MAC address [%s] to trusted list", mac);
-
-                if (config.trustedmaclist == NULL) {
-                    config.trustedmaclist = safe_malloc(sizeof(t_trusted_mac));
-                    config.trustedmaclist->mac = safe_strdup(mac);
-                    config.trustedmaclist->next = NULL;
-                } else {
-                    int skipmac;
-                    /* Advance to the last entry */
-                    p = config.trustedmaclist;
-                    skipmac = 0;
-                    /* Check before loop to handle case were mac is a duplicate
-                     * of the first and only item in the list so far.
-                     */
-                    if (0 == strcmp(p->mac, mac)) {
-                        skipmac = 1;
-                    }
-                    while (p->next != NULL) {
-                        if (0 == strcmp(p->mac, mac)) {
-                            skipmac = 1;
-                        }
-                        p = p->next;
-                    }
-                    if (!skipmac) {
-                        p->next = safe_malloc(sizeof(t_trusted_mac));
-                        p = p->next;
-                        p->mac = safe_strdup(mac);
-                        p->next = NULL;
-                    } else {
-                        debug(LOG_ERR,
-                              "MAC address [%s] already on trusted list. See option TrustedMACList in wifidog.conf file ",
-                              mac);
-                    }
-                }
-            }
-        }
-    }
-
-    free(ptrcopy);
-
-    free(mac);
-
-}
-
-/** @internal
  * Add a popular server to the list. It prepends for simplicity.
  * @param server The hostname to add.
  */
@@ -710,12 +448,12 @@ add_popular_server(const char *server)
     p = (t_popular_server *)safe_malloc(sizeof(t_popular_server));
     p->hostname = safe_strdup(server);
 
-    if (config.popular_servers == NULL) {
+    if (gwOptions.popular_servers == NULL) {
         p->next = NULL;
-        config.popular_servers = p;
+        gwOptions.popular_servers = p;
     } else {
-        p->next = config.popular_servers;
-        config.popular_servers = p;
+        p->next = gwOptions.popular_servers;
+        gwOptions.popular_servers = p;
     }
 }
 
@@ -761,20 +499,15 @@ void
 config_validate(void)
 {
     /*Jerome: J-Module changes wifidog GW IF to J-Module's TUN*/
-    config_notnull(config.gw_interface, "GatewayInterface");
+    config_notnull(gwOptions.gw_interface, "GatewayInterface");
     /*Jerome: J-Module changes ExternalInterface to be mandatory, sharing this IF between wifidog and J-Module*/
-    config_notnull(config.external_interface, "ExternalInterface");
+    config_notnull(gwOptions.external_interface, "ExternalInterface");
     /*Jerome: J-Module add validation of internal inteface */
-    config_notnull(config.internal_sock, "InternalInterface");
+    config_notnull(gwOptions.internal_sock, "InternalInterface");
 
     /*Jerome: J-Module removes these validations*/
-//    config_notnull(config.auth_servers, "AuthServer");
 //    validate_popular_servers();
 
-    if (missing_parms) {
-        debug(LOG_ERR, "Configuration is not complete, exiting...");
-        exit(-1);
-    }
 }
 
 /** @internal
@@ -783,7 +516,7 @@ config_validate(void)
 static void
 validate_popular_servers(void)
 {
-    if (config.popular_servers == NULL) {
+    if (gwOptions.popular_servers == NULL) {
         debug(LOG_WARNING, "PopularServers not set in config file, this will become fatal in a future version.");
         add_popular_server("www.google.com");
         add_popular_server("www.yahoo.com");
@@ -798,7 +531,6 @@ config_notnull(const void *parm, const char *parmname)
 {
     if (parm == NULL) {
         debug(LOG_ERR, "%s is not set", parmname);
-        missing_parms = 1;
     }
 }
 
@@ -810,7 +542,7 @@ get_auth_server(void)
 {
 
     /* This is as good as atomic */
-    return config.auth_servers;
+    return gwOptions.auth_servers;
 }
 
 /**
@@ -822,13 +554,13 @@ mark_auth_server_bad(t_auth_serv * bad_server)
 {
     t_auth_serv *tmp;
 
-    if (config.auth_servers == bad_server && bad_server->next != NULL) {
+    if (gwOptions.auth_servers == bad_server && bad_server->next != NULL) {
         /* Go to the last */
-        for (tmp = config.auth_servers; tmp->next != NULL; tmp = tmp->next) ;
+        for (tmp = gwOptions.auth_servers; tmp->next != NULL; tmp = tmp->next) ;
         /* Set bad server as last */
         tmp->next = bad_server;
         /* Remove bad server from start of list */
-        config.auth_servers = bad_server->next;
+        gwOptions.auth_servers = bad_server->next;
         /* Set the next pointe to NULL in the last element */
         bad_server->next = NULL;
     }

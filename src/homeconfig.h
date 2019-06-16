@@ -1,102 +1,58 @@
-/* vim: set et sw=4 ts=4 sts=4 : */
-/********************************************************************\
- * This program is free software; you can redistribute it and/or    *
- * modify it under the terms of the GNU General Public License as   *
- * published by the Free Software Foundation; either version 2 of   *
- * the License, or (at your option) any later version.              *
- *                                                                  *
- * This program is distributed in the hope that it will be useful,  *
- * but WITHOUT ANY WARRANTY; without even the implied warranty of   *
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the    *
- * GNU General Public License for more details.                     *
- *                                                                  *
- * You should have received a copy of the GNU General Public License*
- * along with this program; if not, contact:                        *
- *                                                                  *
- * Free Software Foundation           Voice:  +1-617-542-5942       *
- * 59 Temple Place - Suite 330        Fax:    +1-617-542-2652       *
- * Boston, MA  02111-1307,  USA       gnu@gnu.org                   *
- *                                                                  *
-\********************************************************************/
-
-/* $Id$ */
-/** @file jconfig.h
-    @brief Config file parsing
-    @author Copyright (C) 2004 Philippe April <papril777@yahoo.com>
+/*
+ * Jerome Build
 */
 
 #ifndef _CONFIG_H_
 #define _CONFIG_H_
 
 #include <arpa/inet.h>
-#include "jnet.h"
+#include "homenet.h"
 
-/*@{*/
-/** Defines */
 
-/** Defaults configuration values */
+/** system configuration values */
 #ifndef SYSCONFDIR
-#define DEFAULT_CONFIGFILE "/etc/JM.conf"
-#define DEFAULT_HTMLMSGFILE "/etc/JM-msg.html"
+#define DEFAULT_CONFIGFILE "/etc/WirelessHome.conf"
+#define DEFAULT_HTMLMSGFILE "/etc/WirelessHome.html"
 #else
-#define DEFAULT_CONFIGFILE SYSCONFDIR"/JM.conf"
-#define DEFAULT_HTMLMSGFILE SYSCONFDIR"/JM-msg.html"
+#define DEFAULT_CONFIGFILE SYSCONFDIR"/WirelessHome.conf"
+#define DEFAULT_HTMLMSGFILE SYSCONFDIR"/WirelessHome.html"
 #endif
-#define DEFAULT_DAEMON 1
-#define DEFAULT_DEBUGLEVEL LOG_INFO
-#define DEFAULT_HTTPDMAXCONN 10
-#define DEFAULT_GATEWAYID NULL
-#define DEFAULT_GATEWAYPORT 2060
+
+#define DEFAULT_WHOME_SOCK "/tmp/whome.sock"
+
+#define DEFAULT_GATEWAYID "WirelessHome"  /* Name for tun device as well*/
+#define WIRELESS_GATEWAY_IP              "192.168.168.169" /* IP address of tun and Wireless Gateway, and DHCP svr*/
+#define DEFAULT_CAPTIVEPORT 2060
 #define DEFAULT_LOCALAUTHPORT 2061
 
-#define DEFAULT_HTTPDNAME "WiFiDog"
+#define GW_REDIR_HOST "redirpage.home.fun"
+
+#define GW_DEFAULT_DNS1			"114.114.114.114"
+#define GW_DEFAULT_DNS2			"119.29.29.29"
+
+/** software configuration values */
+#define DEFAULT_DAEMON 1
+
+#define DEFAULT_HTTPDMAXCONN 10
+#define DEFAULT_HTTPDNAME "WirelessHome"
 #define DEFAULT_CLIENTTIMEOUT 5
 #define DEFAULT_CHECKINTERVAL 60
+
 #define DEFAULT_LOG_SYSLOG 0
+#define DEFAULT_DEBUGLEVEL LOG_INFO
 #define DEFAULT_SYSLOG_FACILITY LOG_DAEMON
-#define DEFAULT_WDCTL_SOCK "/tmp/wdctl.sock"
-#define DEFAULT_INTERNAL_SOCK "/tmp/wifidog.sock"
-#define DEFAULT_AUTHSERVPORT 80
-#define DEFAULT_AUTHSERVSSLPORT 443
-/** Note that DEFAULT_AUTHSERVSSLAVAILABLE must be 0 or 1, even if the config file syntax is yes or no */
-#define DEFAULT_AUTHSERVSSLAVAILABLE 0
-/** Note:  The path must be prefixed by /, and must be suffixed /.  Put / for the server root.*/
 
-/*Jerome, removed
-#define DEFAULT_AUTHSERVPATH "/wifidog/"
-#define DEFAULT_AUTHSERVLOGINPATHFRAGMENT "login/?"
-#define DEFAULT_AUTHSERVPORTALPATHFRAGMENT "portal/?"
-#define DEFAULT_AUTHSERVMSGPATHFRAGMENT "gw_message.php?"
-#define DEFAULT_AUTHSERVPINGPATHFRAGMENT "ping/?"
-#define DEFAULT_AUTHSERVAUTHPATHFRAGMENT "auth/?"
-#define DEFAULT_AUTHSERVSSLCERTPATH "/etc/ssl/certs/"
-end, Jeomre*/
-/** Note that DEFAULT_AUTHSERVSSLNOPEERVER must be 0 or 1, even if the config file syntax is yes or no */
-
-/*Jerome, removed
-#define DEFAULT_AUTHSERVSSLPEERVER 1    //0 means: Enable peer verification
-#define DEFAULT_DELTATRAFFIC 0    //0 means: Enable peer verification
-#define DEFAULT_ARPTABLE "/proc/net/arp"
-#define DEFAULT_AUTHSERVSSLSNI 0  // 0 means: Disable SNI
-end, Jeomre*/
-
-/*@}*/
-
-
-/*Jerome: J-module add*/
-#define DEFAULT_TUNDEV_NAME "JModule"
-#define PKT_MAX_LEN                     9000 /* Maximum packet size we receive */
+/** DHCP configuration values */
 #define DHCP_MAX_CLIENTS              16 /* Maximum DHCP clients supported */
 #define DHCP_HASH_TABLE              64 /* Maximum DHCP hash table size */
 #define DHCP_LEASE_TIME              3000 /* DHCP lease time */
 #define DHCP_DYN_IP_POOL              "192.168.168.3" /* Start of DHCP dynamic pool */
-#define DHCP_DHCP_LISTENR              "192.168.168.168" /* IP address of DHCP listener */
-#define DHCP_TUN_AND_DOG              "192.168.168.169" /* IP address of TUN and Wifidog Gateway */
-#define DHCP_CLIENT_DNS1			"114.114.114.114"
-#define DHCP_CLIENT_DNS2			"119.29.29.29"
+
 #define DEFAULT_DHCP_GW_PORT  3462 /* Default Relay Port of DHCP GW */
 
+/** Network configuration values */
 #define MACOK_MAX                         16
+#define PKT_MAX_LEN                     9000 /* Maximum packet size we receive */
 
 #ifdef ENABLE_MULTILAN
 #define MAX_RAWIF 8
@@ -104,26 +60,63 @@ end, Jeomre*/
 #define MAX_RAWIF 1
 #endif
 
-#define DHCP_REDIR_HOST "redirpage.home.fun"
-
-#define CHAIN_NAME_MAX_LEN 15  /* 28 (actual max) - 13 (AuthServers chain fixed part. */
-#define CHAIN_OUTGOING  "WD_$ID$_Outgoing"
-/*End, Jerome*/
-
-/*@{*/
-/** Defines for firewall rule sets. */
-#define FWRULESET_GLOBAL "global"
-#define FWRULESET_VALIDATING_USERS "validating-users"
-#define FWRULESET_KNOWN_USERS "known-users"
-#define FWRULESET_AUTH_IS_DOWN "auth-is-down"
-#define FWRULESET_UNKNOWN_USERS "unknown-users"
-#define FWRULESET_LOCKED_USERS "locked-users"
-/*@}*/
-
 /**
- * Mutex for the configuration file, used by the auth_servers related
- * functions. */
-extern pthread_mutex_t config_mutex;
+ * Configuration structure
+ */
+typedef struct {
+    char *configfile;       /**< @brief name of the config file */
+    char *htmlmsgfile;          /**< @brief name of the HTML file used for messages */
+    int daemon;                 /**< @brief if daemon > 0, use daemon mode */
+
+    char *gw_id;                /**< @brief ID of the Gateway, sent to central
+				     server */
+    char *gw_interface;         /**< @brief Interface we will accept connections on, J-Module reset it to J-Module's TUN */
+    char *gw_address;           /**< @brief Internal IP address for our web server */
+
+    char *tundevname;  /*self-defined name of tun dev*/
+    struct in_addr tundevip;     /* IP address to listen to */
+    struct in_addr netmask;     /* net mask of IP address*/
+
+    int gw_port;                /**< @brief Port the webserver will run on */
+    int auth_port;      /*Jerome add loacl auth port*/
+
+	char *external_interface;   /**< @brief External network interface name for firewall rules */
+	char* internalif[MAX_RAWIF];  /*taking place of wifidog GW interface which was reset to TUN*/
+
+    struct in_addr dns1;         /* Client DNS address */
+    struct in_addr dns2;         /* Client DNS address */
+
+    char *dhcpdynip;     /* IP address of dyn DHCP pool*/
+
+    struct in_addr dhcpgwip;   /* IP address of DHCP gateway*/
+    uint16_t dhcpgwport;      /* Relay port of DHCP gateway */
+
+//    int max_clients;               /* Max subscriber/clients */
+
+    /* MAC Authentication */
+    uint8_t macok[MACOK_MAX][PKT_ETH_ALEN]; /* Allowed MACs */
+    int macoklen;                   /* Number of MAC addresses */
+    t_trusted_mac *trustedmaclist; /**< @brief list of trusted macs */
+
+
+    char *whome_sock;           /**< @brief wdctl path to socket */
+    char *internal_sock;                /**< @brief internal path to socket */
+
+    char *pidfile;            /**< @brief pid file path of home gateway */
+
+    t_auth_serv *auth_servers;  /**< @brief Auth servers list */
+
+    char *httpdname;            /**< @brief Name the web server will return when replying to a request */
+    char *redirhost;           /**< URL host name of redirect web*/
+
+    int httpdmaxconn;           /**< @brief Used by libhttpd, not sure what it does */
+
+    int clienttimeout;          /**< @brief How many CheckIntervals before a client must be re-authenticated */
+    int checkinterval;          /**< @brief Frequency the the client timeout check thread will run. */
+
+    t_popular_server *popular_servers; /**< @brief list of popular servers */
+
+} s_gwOptions;
 
 /**
  * Information about the authentication server
@@ -146,38 +139,6 @@ typedef struct _auth_serv_t {
 } t_auth_serv;
 
 /**
- * Firewall targets
- */
-typedef enum {
-    TARGET_DROP,
-    TARGET_REJECT,
-    TARGET_ACCEPT,
-    TARGET_LOG,
-    TARGET_ULOG
-} t_firewall_target;
-
-/**
- * Firewall rules
- */
-typedef struct _firewall_rule_t {
-    t_firewall_target target;   /**< @brief t_firewall_target */
-    char *protocol;             /**< @brief tcp, udp, etc ... */
-    char *port;                 /**< @brief Port to block/allow */
-    char *mask;                 /**< @brief Mask for the rule *destination* */
-    int mask_is_ipset; /**< @brief *destination* is ipset  */
-    struct _firewall_rule_t *next;
-} t_firewall_rule;
-
-/**
- * Firewall rulesets
- */
-typedef struct _firewall_ruleset_t {
-    char *name;
-    t_firewall_rule *rules;
-    struct _firewall_ruleset_t *next;
-} t_firewall_ruleset;
-
-/**
  * Trusted MAC Addresses
  */
 typedef struct _trusted_mac_t {
@@ -193,88 +154,13 @@ typedef struct _popular_server_t {
     struct _popular_server_t *next;
 } t_popular_server;
 
-/**
- * Configuration structure
- */
-typedef struct {
-	/*####Jerome, checked begin*/
-    char *configfile;       /**< @brief name of the config file */
-    char *htmlmsgfile;          /**< @brief name of the HTML file used for messages */
-    int daemon;                 /**< @brief if daemon > 0, use daemon mode */
 
-    char *external_interface;   /**< @brief External network interface name for
-				     firewall rules */
-    char *gw_id;                /**< @brief ID of the Gateway, sent to central
-				     server */
-    char *gw_interface;         /**< @brief Interface we will accept connections on, J-Module reset it to J-Module's TUN */
-    char *gw_address;           /**< @brief Internal IP address for our web
-				     server */
-    int gw_port;                /**< @brief Port the webserver will run on */
-
-    int auth_port;      /*Jerome add loacl auth port*/
-
-    /*J-module add*/
-	char *tundevname;  /*self-defined name of tun dev*/
-	char* internalif[MAX_RAWIF];  /*taking place of wifidog GW interface which was reset to TUN*/
-
-    struct in_addr dhcplisten;     /* IP address to listen to */
-    struct in_addr tundevip;     /* IP address to listen to */
-    struct in_addr netmask;     /* net mask of IP address*/
-    struct in_addr dns1;         /* Client DNS address */
-    struct in_addr dns2;         /* Client DNS address */
-
-    char *dhcpdynip;     /* IP address of dyn DHCP pool*/
-
-    struct in_addr dhcpgwip;   /* IP address of DHCP gateway*/
-    uint16_t dhcpgwport;      /* Relay port of DHCP gateway */
-
-//    int max_clients;               /* Max subscriber/clients */
-
-    /* MAC Authentication */
-    uint8_t macok[MACOK_MAX][PKT_ETH_ALEN]; /* Allowed MACs */
-    int macoklen;                   /* Number of MAC addresses */
-
-    char *redirhost;           /**< URL host name of redirect web
-	/*####Jerome, checked end*/
-
-    char *wdctl_sock;           /**< @brief wdctl path to socket */
-    char *internal_sock;                /**< @brief internal path to socket */
-    int deltatraffic;                   /**< @brief reset each user's traffic (Outgoing and Incoming) value after each Auth operation. */
-    char *pidfile;            /**< @brief pid file path of wifidog */
-
-    t_auth_serv *auth_servers;  /**< @brief Auth servers list */
-    char *httpdname;            /**< @brief Name the web server will return when
-				     replying to a request */
-    int httpdmaxconn;           /**< @brief Used by libhttpd, not sure what it
-				     does */
-    char *httpdrealm;           /**< @brief HTTP Authentication realm */
-    char *httpdusername;        /**< @brief Username for HTTP authentication */
-    char *httpdpassword;        /**< @brief Password for HTTP authentication */
-    int clienttimeout;          /**< @brief How many CheckIntervals before a client
-				     must be re-authenticated */
-    int checkinterval;          /**< @brief Frequency the the client timeout check
-				     thread will run. */
-    int proxy_port;             /**< @brief Transparent proxy port (0 to disable) */
-    char *ssl_certs;            /**< @brief Path to SSL certs for auth server
-		verification */
-    int ssl_verify;             /**< @brief boolean, whether to enable
-		auth server certificate verification */
-    char *ssl_cipher_list;  /**< @brief List of SSL ciphers allowed. Optional. */
-    int ssl_use_sni;            /**< @brief boolean, whether to enable
-    auth server for server name indication, the TLS extension */
-    t_firewall_ruleset *rulesets;       /**< @brief firewall rules */
-    t_trusted_mac *trustedmaclist; /**< @brief list of trusted macs */
-    char *arp_table_path; /**< @brief Path to custom ARP table, formatted
-        like /proc/net/arp */
-    t_popular_server *popular_servers; /**< @brief list of popular servers */
-
-} s_config;
 
 /** @brief Get the current gateway configuration */
-s_config *config_get_config(void);
+s_gwOptions *get_gwOptions(void);
 
 /** @brief Initialise the conf system */
-void config_init(void);
+void initOptions(void);
 
 /** @brief Reads the configuration file */
 void config_read(const char *filename);
@@ -291,17 +177,5 @@ void mark_auth_server_bad(t_auth_serv *);
 /** @brief Fetch a firewall rule set. */
 t_firewall_rule *get_ruleset(const char *);
 
-
-#define LOCK_CONFIG() do { \
-	debug(LOG_DEBUG, "Locking config"); \
-	pthread_mutex_lock(&config_mutex); \
-	debug(LOG_DEBUG, "Config locked"); \
-} while (0)
-
-#define UNLOCK_CONFIG() do { \
-	debug(LOG_DEBUG, "Unlocking config"); \
-	pthread_mutex_unlock(&config_mutex); \
-	debug(LOG_DEBUG, "Config unlocked"); \
-} while (0)
 
 #endif                          /* _CONFIG_H_ */

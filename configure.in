@@ -55,8 +55,8 @@ AC_HAVE_LIBRARY(nsl)
 echo "libhttpd dependencies check complete"
 
 AC_OUTPUT( 		Makefile 
-	   		wiHome.spec
-			wiHome.html
+	   		WirelessHome.spec
+			WirelessHome.html
 			src/Makefile
 			libhttpd/Makefile
 			)
