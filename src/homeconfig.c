@@ -2,10 +2,6 @@
  * Jerome Build
 */
 
-/*####Jerome, checked onging*/
-
-#define _GNU_SOURCE
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <syslog.h>
@@ -164,112 +160,10 @@ static OpCodes option_parse_token(const char *cp, const char *filename, int line
     return oBadOption;
 }
 
-/** @internal
-Parses auth server information
-*/
-static void
-parse_internal_interface(FILE * file, const char *filename, int *linenum)
-{
-    char line[MAX_BUF], *p1, *p2;
-    int opcode = 0;
-    int i;
-
-    /* Parsing loop */
-    while (memset(line, 0, MAX_BUF) && fgets(line, MAX_BUF - 1, file) && (strchr(line, '}') == NULL)) {
-        (*linenum)++;           /* increment line counter. */
-
-        /* skip leading blank spaces */
-        for (p1 = line; isblank(*p1); p1++) ;
-
-        /* End at end of line */
-        if ((p2 = strchr(p1, '#')) != NULL) {
-            *p2 = '\0';
-        } else if ((p2 = strchr(p1, '\r')) != NULL) {
-            *p2 = '\0';
-        } else if ((p2 = strchr(p1, '\n')) != NULL) {
-            *p2 = '\0';
-        }
-
-        /* trim all blanks at the end of the line */
-        for (p2 = (p2 != NULL ? p2 - 1 : &line[MAX_BUF - 2]); isblank(*p2) && p2 > p1; p2--) {
-            *p2 = '\0';
-        }
-
-        /* next, we coopt the parsing of the regular config */
-        if (strlen(p1) > 0) {
-            p2 = p1;
-            /* keep going until word boundary is found. */
-            while ((*p2 != '\0') && (!isblank(*p2)))
-                p2++;
-
-            /* Terminate first word. */
-            *p2 = '\0';
-            p2++;
-
-            /* skip all further blanks. */
-            while (isblank(*p2))
-                p2++;
-
-            /* Get opcode */
-            debug(LOG_DEBUG, "Parsing token: %s, " "value: %s", p1, p2);
-            opcode = config_parse_token(p1, filename, *linenum);
-
-            switch (opcode) {
-            case oInternalIfDev:
-                 for (i =0; i < MAX_RAWIF; i++){
-                	 gwOptions.internalif[i] = safe_strdup(p2);
-                }
-                if (i == MAX_RAWIF) {
-                    debug(LOG_DEBUG, "MAX_RAWIF %d internal ports were added!", i);
-                } else {
-                    debug(LOG_DEBUG, "%d internal ports were added!", i);
-                }
-                break;
-
-            case oBadOption:
-            default:
-                debug(LOG_ERR, "Bad option on line %d " "in %s with opcode %d.", *linenum, filename, opcode);
-                debug(LOG_ERR, "Exiting...");
-                exit(-1);
-            }
-
-        }
-    }
-
-    if(gwOptions.internalif[0] == NULL){
-    	debug(LOG_ERR, "Configuration without Internal Interfaces. Exiting...");
-        exit(-1);
-    }
-}
-
-/**
-Advance to the next word
-@param s string to parse, this is the next_word pointer, the value of s
-	 when the macro is called is the current word, after the macro
-	 completes, s contains the beginning of the NEXT word, so you
-	 need to save s to something else before doing TO_NEXT_WORD
-@param e should be 0 when calling TO_NEXT_WORD(), it'll be changed to 1
-	 if the end of the string is reached.
-*/
-#define TO_NEXT_WORD(s, e) do { \
-	while (*s != '\0' && !isblank(*s)) { \
-		s++; \
-	} \
-	if (*s != '\0') { \
-		*s = '\0'; \
-		s++; \
-		while (isblank(*s)) \
-			s++; \
-	} else { \
-		e = 1; \
-	} \
-} while (0)
-
 /**
 @param filename Full path of the configuration file to be read 
 */
-void
-config_read(const char *filename)
+void config_read(const char *filename)
 {
     FILE *fd;
     char line[MAX_BUF], *s, *p1, *p2, *tmpadr, *rawarg = NULL;
@@ -323,7 +217,7 @@ config_read(const char *filename)
 
             if ((strncmp(s, "#", 1)) != 0) {
                 debug(LOG_DEBUG, "Parsing token: %s, " "value: %s", s, p1);
-                opcode = config_parse_token(s, filename, linenum);
+                opcode = option_parse_token(s, filename, linenum);
 
                 switch (opcode) {
                 case oDaemon:
@@ -401,6 +295,24 @@ config_read(const char *filename)
     fclose(fd);
 }
 
+
+/** Verifies if the configuration is complete and valid.  Terminates the program if it isn't */
+/*####Jerome, checked over*/
+void
+config_validate(void)
+{
+    /*Jerome: J-Module changes wifidog GW IF to J-Module's TUN*/
+    config_notnull(gwOptions.gw_interface, "GatewayInterface");
+    /*Jerome: J-Module changes ExternalInterface to be mandatory, sharing this IF between wifidog and J-Module*/
+    config_notnull(gwOptions.external_interface, "ExternalInterface");
+    /*Jerome: J-Module add validation of internal inteface */
+    config_notnull(gwOptions.internalif, "InternalInterface");
+
+    /*Jerome: J-Module removes these validations*/
+//    validate_popular_servers();
+
+}
+
 /** @internal
 Parses a boolean value from the config file
 */
@@ -422,6 +334,85 @@ parse_boolean_value(char *line)
     }
 
     return -1;
+}
+
+
+/** @internal
+Parses internal_interface
+*/
+static void
+parse_internal_interface(FILE * file, const char *filename, int *linenum)
+{
+    char line[MAX_BUF], *p1, *p2;
+    int opcode = 0;
+    int i;
+
+    /* Parsing loop */
+    while (memset(line, 0, MAX_BUF) && fgets(line, MAX_BUF - 1, file) && (strchr(line, '}') == NULL)) {
+        (*linenum)++;           /* increment line counter. */
+
+        /* skip leading blank spaces */
+        for (p1 = line; isblank(*p1); p1++) ;
+
+        /* End at end of line */
+        if ((p2 = strchr(p1, '#')) != NULL) {
+            *p2 = '\0';
+        } else if ((p2 = strchr(p1, '\r')) != NULL) {
+            *p2 = '\0';
+        } else if ((p2 = strchr(p1, '\n')) != NULL) {
+            *p2 = '\0';
+        }
+
+        /* trim all blanks at the end of the line */
+        for (p2 = (p2 != NULL ? p2 - 1 : &line[MAX_BUF - 2]); isblank(*p2) && p2 > p1; p2--) {
+            *p2 = '\0';
+        }
+
+        /* next, we coopt the parsing of the regular config */
+        if (strlen(p1) > 0) {
+            p2 = p1;
+            /* keep going until word boundary is found. */
+            while ((*p2 != '\0') && (!isblank(*p2)))
+                p2++;
+
+            /* Terminate first word. */
+            *p2 = '\0';
+            p2++;
+
+            /* skip all further blanks. */
+            while (isblank(*p2))
+                p2++;
+
+            /* Get opcode */
+            debug(LOG_DEBUG, "Parsing token: %s, " "value: %s", p1, p2);
+            opcode = config_parse_token(p1, filename, *linenum);
+
+            switch (opcode) {
+            case oInternalIfDev:
+                 for (i =0; i < MAX_RAWIF; i++){
+                	 gwOptions.internalif[i] = safe_strdup(p2);
+                }
+                if (i == MAX_RAWIF) {
+                    debug(LOG_DEBUG, "MAX_RAWIF %d internal ports were added!", i);
+                } else {
+                    debug(LOG_DEBUG, "%d internal ports were added!", i);
+                }
+                break;
+
+            case oBadOption:
+            default:
+                debug(LOG_ERR, "Bad option on line %d " "in %s with opcode %d.", *linenum, filename, opcode);
+                debug(LOG_ERR, "Exiting...");
+                exit(-1);
+            }
+
+        }
+    }
+
+    if(gwOptions.internalif[0] == NULL){
+    	debug(LOG_ERR, "Configuration without Internal Interfaces. Exiting...");
+        exit(-1);
+    }
 }
 
 /**
@@ -493,23 +484,6 @@ parse_popular_servers(const char *ptr)
     free(ptrcopy);
 }
 
-/** Verifies if the configuration is complete and valid.  Terminates the program if it isn't */
-/*####Jerome, checked over*/
-void
-config_validate(void)
-{
-    /*Jerome: J-Module changes wifidog GW IF to J-Module's TUN*/
-    config_notnull(gwOptions.gw_interface, "GatewayInterface");
-    /*Jerome: J-Module changes ExternalInterface to be mandatory, sharing this IF between wifidog and J-Module*/
-    config_notnull(gwOptions.external_interface, "ExternalInterface");
-    /*Jerome: J-Module add validation of internal inteface */
-    config_notnull(gwOptions.internal_sock, "InternalInterface");
-
-    /*Jerome: J-Module removes these validations*/
-//    validate_popular_servers();
-
-}
-
 /** @internal
  * Validate that popular servers are populated or log a warning and set a default.
  */
@@ -566,9 +540,3 @@ mark_auth_server_bad(t_auth_serv * bad_server)
     }
 
 }
-
-/*Jerome: J-Module added*/
-
-
-
-/*End, Jerome*/

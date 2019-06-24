@@ -133,6 +133,9 @@ struct pkt_ethhdr8021q_t {
 #define fd_isset(fd,fds)   ((fd) > 0) && FD_ISSET((fd), (fds))
 #define fd_max(fd,max)     (max) = (max) > (fd) ? (max) : (fd)
 
+static uint8_t broadcastmac[PKT_ETH_ALEN] = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
+static uint8_t nonmac[PKT_ETH_ALEN] = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+
 typedef int (*select_callback) (void *data, int idx);
 
 #define copy_ethproto(o,n) {                                            \

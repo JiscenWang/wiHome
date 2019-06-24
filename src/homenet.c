@@ -16,7 +16,7 @@
 #include <string.h>
 #include <stdlib.h>
 
-#include "jnet.h"
+#include "homenet.h"
 #include "safe.h"
 #include "jconfig.h"
 #include "jdhcp.h"
