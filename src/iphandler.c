@@ -124,7 +124,7 @@ int ip_addHash(struct gateway_t *this, ipconnections_t *conn) {
 }
 
 
-/**
+/**dhcp_hashget()
  * Uses the hash tables to find a connection based on the mac address.
  **/
 static int ip_getHash(struct gateway_t *this, ipconnections_t **conn,
@@ -144,6 +144,72 @@ static int ip_getHash(struct gateway_t *this, ipconnections_t **conn,
   return -1; /* Address could not be found */
 }
 
+
+static size_t icmpfrag(ipconnections_t *conn,
+		uint8_t *pack, size_t plen, uint8_t *orig_pack) {
+  /*
+    0                   1                   2                   3
+    0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+    |     Type      |     Code      |          Checksum             |
+    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+    |           unused = 0          |         Next-Hop MTU          |
+    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+    |      Internet Header + 64 bits of Original Data Datagram      |
+    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+
+    Used when we recived a truncated (from recvfrom() where our buffer
+    is smaller than IP packet length) IP packet.
+  */
+
+  size_t icmp_req_len = PKT_IP_HLEN + 8;
+
+  size_t icmp_ip_len = PKT_IP_HLEN + sizeof(struct pkt_icmphdr_t) +
+      4 + icmp_req_len;
+
+  size_t icmp_full_len = icmp_ip_len + sizeofeth(orig_pack);
+
+  struct pkt_iphdr_t  *orig_pack_iph  = pkt_iphdr(orig_pack);
+  struct pkt_ethhdr_t *orig_pack_ethh = pkt_ethhdr(orig_pack);
+
+  if (icmp_full_len > plen) return 0;
+
+  memset(pack, 0, icmp_full_len);
+  copy_ethproto(orig_pack, pack);
+
+  {
+    struct pkt_ethhdr_t *pack_ethh  = pkt_ethhdr(pack);
+    struct pkt_iphdr_t *pack_iph = pkt_iphdr(pack);
+    struct pkt_icmphdr_t *pack_icmph;
+
+    /* eth */
+    memcpy(pack_ethh->dst, orig_pack_ethh->src, PKT_ETH_ALEN);
+    memcpy(pack_ethh->src, orig_pack_ethh->dst, PKT_ETH_ALEN);
+
+    /* ip */
+    pack_iph->version_ihl = PKT_IP_VER_HLEN;
+    pack_iph->saddr = conn->ourip.s_addr;
+    pack_iph->daddr = orig_pack_iph->saddr;
+    pack_iph->protocol = PKT_IP_PROTO_ICMP;
+    pack_iph->ttl = 0x10;
+    pack_iph->tot_len = htons(icmp_ip_len);
+
+    pack_icmph = pkt_icmphdr(pack);
+    pack_icmph->type = 3;
+    pack_icmph->code = 4;
+
+    /* go beyond icmp header and fill in next hop MTU */
+    pack_icmph++;
+    pack_icmph->check = htons(conn->mtu);
+
+    memcpy(pack + (icmp_full_len - icmp_req_len),
+	   orig_pack + sizeofeth(orig_pack), icmp_req_len);
+
+    chksum(pack_iph);
+  }
+
+  return icmp_full_len;
+}
 
 /* Get IP address and mask */
 static int parse_ip_aton(struct in_addr *addr, struct in_addr *mask, char *pool) {
@@ -493,7 +559,7 @@ static int addConnection(struct gateway_t *this, ipconnections_t **conn) {
   return 0; /* Success */
 }
 
-/**
+/**ip_getHash()
  * Allocates a new connection from the pool.
  **/
 int ip_newConnection(struct gateway_t *this, ipconnections_t **conn,
@@ -823,10 +889,11 @@ int ip_rcvIp(struct rawif_in *ctx, uint8_t *pack, size_t len) {
   /*
    *  Check to see if we know MAC address
    */
-  if (!dhcp_hashget(this, &conn, pack_ethh->src)) {
+  if (!ip_getHash(this, &conn, pack_ethh->src)) {
 
     debug(LOG_DEBUG, "IP: MAC Address "MAC_FMT" found", MAC_ARG(pack_ethh->src));
-//    ourip.s_addr = conn->ourip.s_addr;
+    //found of MAC doesnot mean there is IP
+    //    ourip.s_addr = conn->ourip.s_addr;
 
   } else {
 
@@ -839,19 +906,18 @@ int ip_rcvIp(struct rawif_in *ctx, uint8_t *pack, size_t len) {
 			inet_ntoa(reqaddr));
 
     /* Allocate new connection */
-    if (dhcp_newconn(this, &conn, pack_ethh->src)) {
+    if (ip_newConnection(this, &conn, pack_ethh->src)) {
       debug(LOG_DEBUG, "dropping packet; out of connections");
       return 0; /* Out of connections */
     }
   }
 
-  /* Return if we do not know peer */
+  /* Jerome TBD? Return if we do not know peer */
   if (!conn) {
     debug(LOG_ERR, "dropping packet; no peer");
     return 0;
   }
 
-  dhcp_conn_set_idx(conn, ctx);
   /*
    * Sanity check on IP total length
    */
@@ -867,7 +933,7 @@ int ip_rcvIp(struct rawif_in *ctx, uint8_t *pack, size_t len) {
       uint8_t icmp_pack[1500];
 
       debug(LOG_ERR, "Sending fragmentation ICMP");
-      dhcp_send(this, ctx->idx, pack_ethh->src, icmp_pack,
+      gw_sendDlData(this, ctx->idx, pack_ethh->src, icmp_pack,
 		icmpfrag(conn, icmp_pack, sizeof(icmp_pack), pack));
     }
 
@@ -890,7 +956,7 @@ int ip_rcvIp(struct rawif_in *ctx, uint8_t *pack, size_t len) {
     uint8_t icmp_pack[1500];
     debug(LOG_ERR, "ICMP frag forbidden for IP packet with length %d > %d",
              iph_tot_len, conn->mtu);
-    dhcp_send(this, ctx->idx, pack_ethh->src, icmp_pack,
+    gw_sendDlData(this, ctx->idx, pack_ethh->src, icmp_pack,
 	      icmpfrag(conn, icmp_pack, sizeof(icmp_pack), pack));
     return 0;
   }
@@ -956,7 +1022,6 @@ int ip_rcvIp(struct rawif_in *ctx, uint8_t *pack, size_t len) {
     (void) dhcp_getreq(ctx, pack, len);
     return 0;
   }
-
 
   has_ip = conn->hisip.s_addr != 0;
   if (!has_ip){

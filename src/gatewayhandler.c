@@ -414,6 +414,7 @@ static int cb_tun_rcvPackets(struct gateway_t *pgateway, struct pkt_buffer *pb) 
   return tun_rcvDataProcess(pgateway, pb);
 }
 
+/*call back frome gw_raw_rcvPackets()*/
 static int cb_raw_rcvPackets(void *pctx, struct pkt_buffer *pb) {
   struct rawif_in *ctx = (struct rawif_in *)pctx;
   uint16_t prot = 0;
