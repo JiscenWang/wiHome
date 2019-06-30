@@ -27,6 +27,7 @@ struct gateway_t {
   struct _net_interface rawIf[MAX_RAWIF];
 
   struct in_addr ourip; /* IP address to listen to */
+  struct in_addr netmask; /* IP address to listen to */
   int mtu;              /* Maximum transfer unit */
 
   uint16_t uamport;     /* TCP port to redirect HTTP requests to */
@@ -38,16 +39,16 @@ struct gateway_t {
 	struct ippool_t *ippool;
 
 	/* Connection management */
-	ipconnections_t *firstfreeconn; /* First free in linked list */
-	ipconnections_t *lastfreeconn;  /* Last free in linked list */
-	ipconnections_t *firstusedconn; /* First used in linked list */
-	ipconnections_t *lastusedconn;  /* Last used in linked list */
+	struct ipconnections_t *firstfreeconn; /* First free in linked list */
+	struct ipconnections_t *lastfreeconn;  /* Last free in linked list */
+	struct ipconnections_t *firstusedconn; /* First used in linked list */
+	struct ipconnections_t *lastusedconn;  /* Last used in linked list */
 
 	/* Hash related parameters */
 	int hashsize;                 /* Size of hash table */
 	int hashlog;                  /* Log2 size of hash table */
 	int hashmask;                 /* Bitmask for calculating hash */
-	ipconnections_t **hash;    /* Hashsize array of pointer to member */
+	struct ipconnections_t **hash;    /* Hashsize array of pointer to member */
 
 #define tun(x,i) ((x)->_tuntap)
 #define tuntap(x) tun((x),0)

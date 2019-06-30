@@ -163,7 +163,7 @@ static OpCodes option_parse_token(const char *cp, const char *filename, int line
 /**
 @param filename Full path of the configuration file to be read 
 */
-void config_read(const char *filename)
+void readConfig(const char *filename)
 {
     FILE *fd;
     char line[MAX_BUF], *s, *p1, *p2, *tmpadr, *rawarg = NULL;
@@ -299,7 +299,7 @@ void config_read(const char *filename)
 /** Verifies if the configuration is complete and valid.  Terminates the program if it isn't */
 /*####Jerome, checked over*/
 void
-config_validate(void)
+valiConfig(void)
 {
     /*Jerome: J-Module changes wifidog GW IF to J-Module's TUN*/
     config_notnull(gwOptions.gw_interface, "GatewayInterface");

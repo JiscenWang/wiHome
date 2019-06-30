@@ -60,6 +60,7 @@
 #define MAX_RAWIF 1
 #endif
 
+
 /**
  * Configuration structure
  */
@@ -163,10 +164,10 @@ s_gwOptions *get_gwOptions(void);
 void initOptions(void);
 
 /** @brief Reads the configuration file */
-void config_read(const char *filename);
+void readConfig(const char *filename);
 
 /** @brief Check that the configuration is valid */
-void config_validate(void);
+void valiConfig(void);
 
 /** @brief Get the active auth server */
 t_auth_serv *get_auth_server(void);

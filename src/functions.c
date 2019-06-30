@@ -75,4 +75,15 @@ int safe_sendto(int s, const void *b, size_t blen, int flags, const struct socka
   return ret;
 }
 
+int safe_write(int s, void *b, size_t blen) {
+  int ret;
+  do {
+    ret = write(s, b, blen);
+  } while (ret == -1 && errno == EINTR);
+
+  if (ret < 0)
+    debug(LOG_ERR, "%s: write(%d, %zd)", strerror(errno), s, blen);
+
+  return ret;
+}
 

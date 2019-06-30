@@ -1,5 +1,5 @@
 /*
- * gatewayhandler.c
+ * gatewayapi.c
  *
  *  Created on: 2019年6月21日
  *      Author: jerome
@@ -22,53 +22,17 @@
 #include "homenet.h"
 
 #include "httpd.h"
-#include "gatewayhandler.h"
+#include "gatewayapi.h"
 #include "gatewaymain.h"
-#include "iphandler.h"
+#include "ipprocessing.h"
 
 
 /**
- *  dhcp_sendGARP()
- * Send Gratuitous ARP message to network
+ tun_write
  **/
-/*idx < 0 send data to all raw interfaces*/
-static int gw_sendDlGARP(struct gateway_t *pgateway, int idx) {
-  uint8_t packet[1500];
-
-  struct pkt_ethhdr_t *packet_ethh;
-  struct arp_packet_t *packet_arp;
-
-  memset(packet, 0, sizeof(packet));
-
-  packet_ethh = pkt_ethhdr(packet);
-  packet_arp = pkt_arppkt(packet);
-
-  /* ARP Payload */
-  packet_arp->hrd = htons(DHCP_HTYPE_ETH);
-  packet_arp->pro = htons(PKT_ETH_PROTO_IP);
-  packet_arp->hln = PKT_ETH_ALEN;
-  packet_arp->pln = PKT_IP_ALEN;
-  packet_arp->op  = htons(DHCP_ARP_REPLY);
-
-  /* Source address */
-  memcpy(packet_arp->sha, &pgateway->rawIf[0], PKT_ETH_ALEN);
-  memcpy(packet_arp->spa, &pgateway->ourip.s_addr, PKT_IP_ALEN);
-
-  /* Target address */
-  memcpy(packet_arp->tha, broadcastmac, PKT_ETH_ALEN);
-  memcpy(packet_arp->tpa, &pgateway->ourip.s_addr, PKT_IP_ALEN);
-
-  debug(LOG_DEBUG, "DHCP %s GARP with "MAC_FMT": Replying to broadcast",
-		  inet_ntoa(pgateway->ourip), MAC_ARG(pgateway->rawIf[0].hwaddr));
-
-  /* Ethernet header */
-  memcpy(packet_ethh->dst, broadcastmac, PKT_ETH_ALEN);
-  memcpy(packet_ethh->src, &pgateway->rawIf[0], PKT_ETH_ALEN);
-  packet_ethh->prot = htons(PKT_ETH_PROTO_ARP);
-
-  return gw_sendDlData(pgateway, idx, broadcastmac, packet, sizeofarp(packet));
+static int gw_callTunWrite(struct _net_interface *tun, uint8_t *pack, size_t len) {
+	  return safe_write(tun->fd, pack, len);
 }
-
 
 /**
  * Open a tun device for home gateway
@@ -117,7 +81,7 @@ static int gw_openTun(struct _net_interface *netif) {
 /**
 Setup raw sockets from internal interfaces for home gateway
  **/
-static int gw_openRawsocket(struct gateway_t *pgateway, char *interface, struct in_addr *listen) {
+static int gw_openRawsocket(struct gateway_t *pgateway, char *interface) {
 	s_gwOptions *gwOptions = get_gwOptions();
 
   if (net_init(&pgateway->rawIf[0], interface, ETH_P_ALL, 1) < 0) {
@@ -142,21 +106,6 @@ static int gw_openRawsocket(struct gateway_t *pgateway, char *interface, struct 
   }
 #endif
 
-
-  /* Initialise various variables */
-  pgateway->ourip.s_addr = listen->s_addr;
-  debug(LOG_DEBUG, "Set gateway listening IP %s", inet_ntoa(pgateway->ourip));
-
-  pgateway->uamport = gwOptions->gw_port;
-  pgateway->mtu = pgateway->rawIf[0].mtu;
-
-  /* Initialise call back functions
-  dhcp->cb_data_ind = NULL;
-  dhcp->cb_request = NULL;
-  dhcp->cb_disconnect = NULL;
-  dhcp->cb_connect = NULL;
-*/
-  gw_sendDlGARP(pgateway, -1);
   return 0;
 }
 
@@ -175,203 +124,6 @@ static int gw_callNetSend(struct _net_interface *netif, unsigned char *hismac,
   return net_write_eth(netif, packet, length, &netif->dest);
 }
 
-/**
- * Call this function to send an IP packet to the peer.
- **/
-int tun_sndDataProcess(ipconnections_t *conn,
-		  struct pkt_buffer *pb, int ethhdr) {
-
-  struct gateway_t *pgateway = conn->parent;
-
-  uint8_t *packet = pkt_buffer_head(pb);
-  size_t length = pkt_buffer_length(pb);
-
-
-  char do_checksum = 0;
-  char allowed = 0;
-
-  int authstate = 0;
-
-  if (ethhdr) {
-    /*
-     * Ethernet frame
-     */
-    size_t hdrplus = sizeofeth2(tag) - sizeofeth(packet);
-    if (hdrplus > 0) {
-      if (pb->offset < hdrplus) {
-	debug(LOG_ERR, "bad buffer off=%d hdrplus=%d",
-               (int) pb->offset, (int) hdrplus);
-	return 0;
-      }
-      pkt_buffer_grow(pb, hdrplus);
-      packet = pkt_buffer_head(pb);
-      length = pkt_buffer_length(pb);
-    }
-  } else {
-    size_t hdrlen = sizeofeth2(tag);
-    if (pb->offset < hdrlen) {
-      debug(LOG_ERR, "bad buffer off=%d hdr=%d",
-             (int) pb->offset, (int) hdrlen);
-      return 0;
-    }
-    pkt_buffer_grow(pb, hdrlen);
-    packet = pkt_buffer_head(pb);
-    length = pkt_buffer_length(pb);
-	debug(LOG_DEBUG, "adding %zd to IP frame length %zd",   hdrlen, length);
-  }
-
-  if (!pgateway) {
-    debug(LOG_WARNING, "DHCP connection no longer valid");
-    return 0;
-  }
-
-  authstate = conn->authstate;
-
-  dhcp_ethhdr(conn, packet, conn->hismac, pgateway->rawIf[0].hwaddr, PKT_ETH_PROTO_IP);
-
-  struct pkt_iphdr_t  *pack_iph  = pkt_iphdr(packet);
-  struct pkt_udphdr_t *pack_udph = pkt_udphdr(packet);
-
-  /* Was it a DNS response? */
-  if (pack_iph->protocol == PKT_IP_PROTO_UDP &&
-		  pack_udph->src == htons(DHCP_DNS)) {
-  	debug(LOG_DEBUG, "A DNS response");
-  	allowed = 1; /* Is allowed DNS */
-
-  }
-
-  switch (authstate) {
-
-    case DHCP_AUTH_PASS:
-//      dhcp_postauthDNAT(conn, packet, length, 1, &do_checksum);
-      break;
-
-    case DHCP_AUTH_DNAT:
-    case DHCP_AUTH_NONE:
-      /* undo destination NAT */
-      if (dhcp_undoDNAT(conn, packet, &length, 1, &do_checksum) && !allowed) {
-    	debug(LOG_DEBUG, "dhcp_undoDNAT() returns true");
-        return 0;
-      }
-      break;
-
-    case DHCP_AUTH_DROP:
-		debug(LOG_DEBUG, "drop");
-    	return 0;
-    default:
-		debug(LOG_DEBUG, "unhandled authstate %d",   authstate);
-    	return 0;
-  }
-
-  if (do_checksum)
-      chksum(pkt_iphdr(packet));
-
-  return gw_sendDlData(pgateway, 0, conn->hismac, packet, length);
-}
-
-/*
- * Called from the tun callback function, processing either an IP packet.
- */
-static int tun_rcvDataProcess(struct gateway_t *pgateway, struct pkt_buffer *pb) {
-  struct in_addr dst;
-  struct ippoolm_t *ipm;
-  ipconnections_t *connection = 0;
-
-  struct pkt_udphdr_t *udph = 0;
-  struct pkt_ipphdr_t *ipph;
-
-  uint8_t *pack = pkt_buffer_head(pb);
-  size_t len = pkt_buffer_length(pb);
-
-  int ethhdr = (pgateway->gwTun.flags & NET_ETHHDR) != 0;
-  size_t ip_len = len;
-
-  ipph = (struct pkt_ipphdr_t *)pack;
-
-  size_t hlen = (ipph->version_ihl & 0x0f) << 2;
-  if (ntohs(ipph->tot_len) > ip_len || hlen > ip_len) {
-	  debug(LOG_DEBUG, "invalid IP packet %d / %zu",
-             ntohs(ipph->tot_len),
-             len);
-    return 0;
-  }
-
-  /*
-   *  Filter out unsupported / unhandled protocols,
-   *  and check some basic length sanity.
-   */
-  switch(ipph->protocol) {
-    case PKT_IP_PROTO_GRE:
-    case PKT_IP_PROTO_TCP:
-    case PKT_IP_PROTO_ICMP:
-    case PKT_IP_PROTO_ESP:
-    case PKT_IP_PROTO_AH:
-      break;
-    case PKT_IP_PROTO_UDP:
-      {
-        /*
-         * Only the first IP fragment has the UDP header.
-         */
-        if (iphdr_offset((struct pkt_iphdr_t*)ipph) == 0) {
-          udph = (struct pkt_udphdr_t *)(((void *)ipph) + hlen);
-        }
-        if (udph && !iphdr_more_frag((struct pkt_iphdr_t*)ipph) && (ntohs(udph->len) > ip_len)) {
-
-        	debug(LOG_DEBUG, "invalid UDP packet %d / %d / %zu",
-                   ntohs(ipph->tot_len),
-                   udph ? ntohs(udph->len) : -1, ip_len);
-          return 0;
-        }
-      }
-      break;
-    default:
-       	debug(LOG_DEBUG, "dropping unhandled packet: %x",   ipph->protocol);
-       return 0;
-  }
-
-  dst.s_addr = ipph->daddr;
-
-  debug(LOG_DEBUG, "TUN sending packet to : %s", inet_ntoa(dst));
-
-  if (ippoolGetip(pgateway->ippool, &ipm, &dst)) {
-    /*
-     *  Jerome TBD: If within statip range, allow the packet through (?)
-     */
-		debug(LOG_DEBUG, "dropping packet with unknown destination: %s",   inet_ntoa(dst));
-    return 0;
-  }
-
-  connection = (ipconnections_t *)ipm->peer;
-
-  if (connection == NULL) {
-    debug(LOG_ERR, "No dnlink protocol defined for %s", inet_ntoa(dst));
-    return 0;
-  }
-
-  /*Jerome: J-Module modified. Not judged by client's authstate, but by DHCP conn's
-
-  switch (conn->authstate) {
-    case DHCP_AUTH_NONE:
-    case DHCP_AUTH_DROP:
-    case DHCP_AUTH_DNAT:
-		debug(LOG_DEBUG, "Dropping...");
-      break;
-
-    case DHCP_AUTH_PASS:
-      tun_sndDataProcess((struct dhcp_conn_t *)client->dnlink, pb, ethhdr);
-      break;
-
-    default:
-      debug(LOG_ERR, "Unknown downlink protocol: %d", conn->authstate);
-      break;
-  }
-End Jerome*/
-  tun_sndDataProcess(connection, pb, ethhdr);
-  return 0;
-
-}
-
-
 /*Callback entry of select() for tun-gateway when receiving packets */
 static int cb_tun_rcvPackets(struct gateway_t *pgateway, struct pkt_buffer *pb) {
 
@@ -382,9 +134,7 @@ static int cb_tun_rcvPackets(struct gateway_t *pgateway, struct pkt_buffer *pb) 
   uint8_t *packet = pkt_buffer_head(pb);
 
   s_gwOptions *gwOptions = get_gwOptions();
-
   struct in_addr addr;
-
 
   if (length < PKT_IP_HLEN){
 		debug(LOG_DEBUG, "tun_decaps invalid length < PKT_IP_HLEN");
@@ -410,8 +160,7 @@ static int cb_tun_rcvPackets(struct gateway_t *pgateway, struct pkt_buffer *pb) 
       return -1;
     }
 
-
-  return tun_rcvDataProcess(pgateway, pb);
+  return tun_rcvIp(pgateway, pb);
 }
 
 /*call back frome gw_raw_rcvPackets()*/
@@ -446,12 +195,12 @@ static int cb_raw_rcvPackets(void *pctx, struct pkt_buffer *pb) {
   switch (prot) {
     case PKT_ETH_PROTO_ARP:
     	debug(LOG_DEBUG, "Gateway from raw receives ARP packet of length %d", length);
-        return ip_rcvArp(ctx, packet, length);
+        return raw_rcvArp(ctx, packet, length);
       break;
 
     case PKT_ETH_PROTO_IP:
     	debug(LOG_DEBUG, "Gateway from raw receives IP packet of length %d", length);
-        return ip_rcvIp(ctx, packet, length);
+        return raw_rcvIp(ctx, packet, length);
       break;
 
     case PKT_ETH_PROTO_PPP:
@@ -522,8 +271,21 @@ int initGateway(struct gateway_t **ppgateway) {
   net_set_address(&homeGateway->gwTun, &gwOptions->tundevip, &gwOptions->tundevip, &gwOptions->netmask);
   debug(LOG_DEBUG, "Set gateway IP address %s", inet_ntoa(gwOptions->tundevip));
 
-  gw_openRawsocket(home_gateway, gwOptions->internalif[0], gwOptions->tundevip);
+  if(gw_openRawsocket(home_gateway, gwOptions->internalif[0]))
+	  return -1;
 
+  /* Initialise various variables */
+  home_gateway->ourip.s_addr = gwOptions->tundevip;
+  debug(LOG_DEBUG, "Set gateway listening IP %s", inet_ntoa(gwOptions->tundevip));
+
+  home_gateway->uamport = gwOptions->gw_port;
+  home_gateway->mtu = home_gateway->rawIf[0].mtu;
+  home_gateway->netmask = gwOptions->netmask;
+
+  /* Initialise call back functions
+  dhcp->cb_data_ind = NULL;
+*/
+  sendDlGARP(home_gateway, -1);
   return 0;
 }
 
@@ -549,4 +311,42 @@ int gw_sendDlData(struct gateway_t *this, int idx,
 
   return gw_callNetSend(iface, hismac, packet, length);
 }
+
+
+/* cb_dhcp_data_ind */
+int gw_sendUlData(struct ipconnections_t *conn, uint8_t *pack, size_t len) {
+  int result;
+  struct gateway_t *pgateway = conn->parent;
+
+  debug(LOG_DEBUG, "Gateway sending Upstream packet is sending via Tun. Connection authstate: %d",
+    conn->authstate);
+
+  switch (conn->authstate) {
+    case DHCP_AUTH_DROP:
+      debug(LOG_DEBUG, "Upstream packet is dropped for non-authentication");
+      return -1;
+
+    case DHCP_AUTH_PASS:
+    case DHCP_AUTH_NONE:
+    case DHCP_AUTH_DNAT:
+
+      break;
+
+    default:
+      debug(LOG_ERR, "Unknown auth state");
+      return -1;
+  }
+
+  size_t ethlen = sizeofeth(pack);
+  pack += ethlen;
+  len  -= ethlen;
+
+  debug(LOG_DEBUG, "Gateway tun (%s) fd=%d sending packet len=%zd", pgateway->gwTun.devname, pgateway->gwTun.fd, len);
+
+  result = gw_callTunWrite(&pgateway->gwTun, pack, len);
+  if (result < 0)
+	  debug(LOG_ERR, "%s:Gateway tun write (%zu) = %d", strerror(errno), len, result);
+  return result;
+}
+
 

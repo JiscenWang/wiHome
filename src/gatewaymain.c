@@ -20,8 +20,8 @@
 #include "debug.h"
 #include "homeconfig.h"
 #include "gatewaymain.h"
-#include "gatewayhandler.h"
-#include "iphandler.h"
+#include "gatewayapi.h"
+#include "ipprocessing.h"
 
 #include "homenet.h"
 #include "homeauth.h"
@@ -331,8 +331,8 @@ int main(int argc, char **argv)
 	parseCommandline(argc, argv);
 
     /* Initialize the config */
-    config_read(gwOptions->configfile);
-    config_validate();
+	readConfig(gwOptions->configfile);
+	valiConfig();
 
     /* Init the signals to catch chld/quit/etc */
     initSignals();
