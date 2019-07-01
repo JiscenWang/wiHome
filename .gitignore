@@ -52,3 +52,15 @@ Mkfile.old
 dkms.conf
 /.cproject
 /.project
+/.autotools
+/aclocal.m4
+/config.log
+/config.status
+/configure
+/libtool
+/Makefile
+/Makefile.in
+/WirelessHome.html
+/WirelessHome.spec
+/config.h
+/stamp-h1
