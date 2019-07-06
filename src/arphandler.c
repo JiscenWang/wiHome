@@ -11,11 +11,19 @@
 #include <stdlib.h>
 #include <unistd.h>
 
+#include "common.h"
+#include "gatewayapi.h"
+#include "debug.h"
+#include "homenet.h"
+#include "ipprocessing.h"
+#include "functions.h"
+
+#include "homeconfig.h"
 /**
  * Send ARP message to peer
  **/
 static
-int ip_sendARP(struct gateway_t *this, uint8_t *pack, size_t len) {
+int sendARP(struct gateway_t *this, uint8_t *pack, size_t len) {
   uint8_t packet[1500];
 
   struct in_addr reqaddr;
@@ -45,8 +53,8 @@ int ip_sendARP(struct gateway_t *this, uint8_t *pack, size_t len) {
   packet_arp->op  = htons(DHCP_ARP_REPLY);
 
   /* Source address */
-  memcpy(packet_arp->spa, &this->ourip, PKT_IP_ALEN);
-  memcpy(packet_arp->sha, this->rawIf[0], PKT_ETH_ALEN);
+  memcpy(packet_arp->spa, &this->ourip.s_addr, PKT_IP_ALEN);
+  memcpy(packet_arp->sha, this->rawIf[0].hwaddr, PKT_ETH_ALEN);
 
   /* Target address */
   memcpy(packet_arp->tha, pack_arp->sha, PKT_ETH_ALEN);
@@ -58,7 +66,7 @@ int ip_sendARP(struct gateway_t *this, uint8_t *pack, size_t len) {
 
   /* Ethernet header */
   memcpy(packet_ethh->dst, pack_arp->sha, PKT_ETH_ALEN);
-  memcpy(packet_ethh->src, this->rawIf[0], PKT_ETH_ALEN);
+  memcpy(packet_ethh->src, this->rawIf[0].hwaddr, PKT_ETH_ALEN);
 
   return gw_sendDlData(this, 0, pack_arp->sha,
 		   packet, sizeofarp(packet));
@@ -111,7 +119,7 @@ int raw_rcvArp(struct rawif_in *ctx, uint8_t *pack, size_t len) {
 
   /* Check that MAC address is our MAC or Broadcast */
   /*Jerome TBD for mulit LAN ARP*/
-  if ((memcmp(pack_ethh->dst, this->rawIf[0], PKT_ETH_ALEN)) &&
+  if ((memcmp(pack_ethh->dst, this->rawIf[0].hwaddr, PKT_ETH_ALEN)) &&
       (memcmp(pack_ethh->dst, broadcastmac, PKT_ETH_ALEN))) {
     debug(LOG_DEBUG, "ARP: Received ARP request for other destination!");
     return 0;
@@ -160,7 +168,7 @@ int raw_rcvArp(struct rawif_in *ctx, uint8_t *pack, size_t len) {
   }
 
 /*Jerome: no authstating process in ARP
-  if (conn->authstate == DHCP_AUTH_NONE)
+  if (conn->authstate == NEW_CLIENT)
     this->cb_request(conn, &reqaddr, 0, 0);
 End, Jerome*/
 
@@ -195,7 +203,7 @@ End, Jerome*/
      return 0;
   }
 
-  ip_sendARP(this, pack, len);
+  sendARP(this, pack, len);
   return 0;
 }
 

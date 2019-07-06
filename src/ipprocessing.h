@@ -40,10 +40,9 @@
 #define DNPROT_DHCP_DONE  3
 
 /* Authentication states */
-#define DHCP_AUTH_NONE        0
-#define DHCP_AUTH_DROP        1
-#define DHCP_AUTH_PASS        2
-#define DHCP_AUTH_DNAT        5
+#define NEW_CLIENT        0
+#define DROP_CLIENT        1
+#define AUTH_CLIENT        2
 
 #define DHCP_DNAT_MAX       128
 
@@ -180,5 +179,14 @@ int initIpHandling(struct gateway_t *pgateway);
 
 int raw_rcvIp(struct rawif_in *ctx, uint8_t *pack, size_t len);
 int tun_rcvIp(struct gateway_t *pgateway, struct pkt_buffer *pb);
+
+int ip_newConnection(struct gateway_t *this, struct ipconnections_t **conn,
+		 uint8_t *hwaddr);
+int ip_allocClientIP(struct ipconnections_t *conn, struct in_addr *addr,
+		    uint8_t *dhcp_pkt, size_t dhcp_len);
+int ip_getHash(struct gateway_t *this, struct ipconnections_t **conn,
+		 uint8_t *hwaddr);
+void ip_relConnection(struct gateway_t *this, uint8_t *hwaddr, struct ipconnections_t *conn);
+int ip_checkTimeout(struct gateway_t *this);
 
 #endif /* SRC_IPHANDLER_H_ */

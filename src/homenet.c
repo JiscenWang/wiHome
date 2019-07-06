@@ -17,10 +17,7 @@
 #include <stdlib.h>
 
 #include "homenet.h"
-#include "safe.h"
-#include "jconfig.h"
-#include "jdhcp.h"
-#include "jmodule.h"
+#include "homeconfig.h"
 
 #include "debug.h"
 

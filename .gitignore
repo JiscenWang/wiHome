@@ -21,6 +21,9 @@
 *.a
 *.la
 *.lo
+*.Plo
+*.Po
+*.lai
 
 # Shared objects (inc. Windows DLLs)
 *.dll
@@ -64,3 +67,4 @@ dkms.conf
 /WirelessHome.spec
 /config.h
 /stamp-h1
+/next

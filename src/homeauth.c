@@ -11,6 +11,7 @@
 #include <signal.h>
 #include <errno.h>
 #include <time.h>
+#include <netinet/in.h>
 
 /* for strerror() */
 #include <string.h>
@@ -23,10 +24,9 @@
 #include <sys/un.h>
 
 #include "common.h"
-#include "jconfig.h"
 #include "debug.h"
-#include "jauth.h"
-
+#include "homeauth.h"
+#include "homeconfig.h"
 
 void thread_authsvr(void *args);
 authrequest *authGetConnection(authsvr *server, struct timeval *timeout);
@@ -144,7 +144,7 @@ thread_authsvr(void *args)
 	void	**params;
 	authsvr	*webserver;
 	authrequest	*r;
-	s_config *config = config_get_config();
+	s_gwOptions *gwOptions = get_gwOptions();
 
 	params = (void **)args;
 	webserver = *params;

@@ -13,6 +13,14 @@
 #include <stdlib.h>
 #include <unistd.h>
 
+#include "common.h"
+#include "gatewayapi.h"
+#include "debug.h"
+#include "homenet.h"
+#include "ipprocessing.h"
+#include "functions.h"
+#include "homenet.h"
+#include "homeconfig.h"
 /**
  * dhcp_create_pkt()
  * Create a new typed DHCP packet
@@ -85,7 +93,7 @@ static int createDhcpPkt(uint8_t type, uint8_t *pack, uint8_t *req,
 
   /* Ethernet Header */
   memcpy(pack_ethh->dst, req_ethh->src, PKT_ETH_ALEN);
-  memcpy(pack_ethh->src, dhcp_nexthop(this), PKT_ETH_ALEN);
+  memcpy(pack_ethh->src, this->rawIf[0].hwaddr, PKT_ETH_ALEN);
 
   /* UDP and IP Headers */
   pack_udph->src = htons(DHCP_BOOTPS);
@@ -146,7 +154,7 @@ static int createDhcpPkt(uint8_t type, uint8_t *pack, uint8_t *req,
       pack_udph->dst = htons(DHCP_BOOTPC);
       pack_dhcp->flags[0] = 0x80;
       if (req_dhcp->flags[0] & 0x80)
-	memcpy(pack_ethh->dst, bmac, PKT_ETH_ALEN);
+	memcpy(pack_ethh->dst, broadcastmac, PKT_ETH_ALEN);
     } else {
       pack_iph->daddr = pack_dhcp->yiaddr;
       pack_udph->dst = htons(DHCP_BOOTPC);
@@ -168,68 +176,6 @@ static int createDhcpPkt(uint8_t type, uint8_t *pack, uint8_t *req,
   pack_dhcp->options[pos++] = type;
 
   return pos;
-}
-
-
-/* DHCP allocate new IP address */
-int allocDhcpCLientIP(struct ipconnections_t *conn, struct in_addr *addr,
-		    uint8_t *dhcp_pkt, size_t dhcp_len) {
-
-	s_gwOptions *gwOptions = get_gwOptions();
-	struct gateway_t *pgateway = conn->parent;
-  struct ippoolm_t *ipm = 0;
-
-
-  debug(LOG_DEBUG, "DHCP request for MAC "MAC_FMT" with IP address %s",
-		  MAC_ARG(conn->hismac),
-         addr ? inet_ntoa(*addr) : "n/a");
-
-  struct in_addr reqip;
-  reqip.s_addr = addr ? addr->s_addr : 0;
-
-  if (conn->uplink) {
-
-    /*  IP Address is already known and allocated.*/
-    ipm = (struct ippoolm_t*) conn->uplink;
-
-  } else {
-
-	    if (conn->hisip.s_addr) {
-	      debug(LOG_WARNING, "Requested IP address when already allocated (hisip %s)",
-	             inet_ntoa(conn->hisip));
-	      reqip.s_addr = conn->hisip.s_addr;
-	    }
-
-	    /* Allocate IP address */
-	    if (ippool_newip(pgateway->ippool, &ipm, &reqip)) {
-	        debug(LOG_ERR, "Failed to allocate either static or dynamic IP address");
-	        return -1;
-	    }
-
-	    conn->hisip.s_addr = ipm->addr.s_addr;
-	    conn->hismask.s_addr = gwOptions->netmask.s_addr;
-
-	    debug(LOG_DEBUG, "Successfully allocate client MAC="MAC_FMT" assigned IP %s" ,
-	             MAC_ARG(conn->hismac), inet_ntoa(conn->hisip));
-
-	    if (!conn->ourip.s_addr)
-	    	conn->ourip.s_addr = gwOptions->tundevip.s_addr;
-
-	    conn->uplink = ipm;
-	    ipm->peer = conn;
-
-  }
-
-   if (ipm) {
-	  conn->hisip.s_addr = ipm->addr.s_addr;
-	  conn->hismask.s_addr = gwOptions->netmask.s_addr;
-	  conn->ourip.s_addr = gwOptions->tundevip.s_addr;
-   }
-
-  if (conn->authstate != DHCP_AUTH_PASS)
-	  conn->authstate = DHCP_AUTH_DNAT;
-
-  return 0;
 }
 
 
@@ -363,7 +309,7 @@ static int sendDhcpNak(struct ipconnections_t *conn, uint8_t *pack, size_t len) 
  * dhcp_sendACK()
  * Send of a DHCP acknowledge message to a peer.
  **/
-int sendDhcpAck(struct ipconnections_t *conn, uint8_t *pack, size_t len) {
+static int sendDhcpAck(struct ipconnections_t *conn, uint8_t *pack, size_t len) {
 
   struct gateway_t *this = conn->parent;
 
@@ -400,7 +346,7 @@ int sendDhcpAck(struct ipconnections_t *conn, uint8_t *pack, size_t len) {
  * dhcp_sendOFFER()
  * Send of a DHCP offer message to a peer.
  **/
-int sendDhcpOffer(struct ipconnections_t *conn, uint8_t *pack, size_t len) {
+static int sendDhcpOffer(struct ipconnections_t *conn, uint8_t *pack, size_t len) {
 
   struct gateway_t *this = conn->parent;
 
@@ -476,13 +422,13 @@ int dhcpHandler(struct rawif_in *ctx, uint8_t *pack, size_t len) {
 
     case DHCPDECLINE:
         debug(LOG_DEBUG,"DHCP-Decline");
-        releaseConnection(this, mac, conn);
+        ip_relConnection(this, mac, conn);
         /* No Reply to client is sent */
         return 0;
 
     case DHCPRELEASE:
         debug(LOG_DEBUG,"DHCP-Release");
-        releaseConnection(this, mac, conn);
+        ip_relConnection(this, mac, conn);
         /* No Reply to client is sent */
         return 0;
 
@@ -500,11 +446,11 @@ int dhcpHandler(struct rawif_in *ctx, uint8_t *pack, size_t len) {
       return 0; /* Unsupported message type */
   }
 
-  if (ip_getHash(this, conn, mac)) {
-    if (ip_newConnection(this, conn, mac))
+  if (ip_getHash(this, &conn, mac)) {
+    if (ip_newConnection(this, &conn, mac))
       return -1;
   }else{
-	  if (!*conn)
+	  if (conn == NULL)
 	    debug(LOG_ERR,"Connection not allocated well");
 	    return -1;
   }
@@ -530,7 +476,7 @@ int dhcpHandler(struct rawif_in *ctx, uint8_t *pack, size_t len) {
 
 
   /* Request an IP address */
-    if (allocDhcpCLientIP(conn, &addr, pack, len)){
+    if (ip_allocClientIP(conn, &addr, pack, len)){
       debug(LOG_DEBUG, "Failed to allocate an IP to client, sending NAK");
       return sendDhcpNak(conn, pack, len);
     }

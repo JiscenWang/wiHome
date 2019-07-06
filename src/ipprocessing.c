@@ -14,6 +14,8 @@
 #include <unistd.h>
 #include <arpa/inet.h>
 
+#include "common.h"
+#include "gatewayapi.h"
 #include "ipprocessing.h"
 #include "dhcphandler.h"
 #include "dnshandler.h"
@@ -22,6 +24,7 @@
 #include "homenet.h"
 #include "homeconfig.h"
 #include "debug.h"
+#include "functions.h"
 
 //Jerome: Try this one first
 #define HAVE_SFHASH
@@ -38,8 +41,16 @@ uint32_t hashbig(const void *key, size_t length, uint32_t initval);
 #error No hashing function found.
 #endif
 
+
+#undef get16bits
+#if !defined (get16bits)
+#define get16bits(d) ((((uint32_t)(((const uint8_t *)(d))[1])) << 8)    \
+                      +(uint32_t)(((const uint8_t *)(d))[0]) )
+#endif
+
 const unsigned int IPPOOL_STATSIZE = 0x10000;
 static int connections = 0;
+extern struct timespec mainclock;
 
 uint32_t SuperFastHash (const char * data, int len, uint32_t hash) {
   uint32_t tmp;
@@ -99,6 +110,10 @@ uint32_t lookup(uint8_t *k,  uint32_t length,  uint32_t initval)
 #endif
 }
 
+uint32_t ippool_hash4(struct in_addr *addr) {
+  return lookup((unsigned char *)&addr->s_addr, sizeof(addr->s_addr), 0);
+}
+
 /**
  * dhcp_hash()
  * Generates a 32 bit hash based on a mac address
@@ -153,7 +168,7 @@ int ip_addHash(struct gateway_t *this, struct ipconnections_t *conn) {
   struct ipconnections_t *p_prev = NULL;
 
   /* Insert into hash table */
-  hash = dhcp_hash(conn->hismac) & this->hashmask;
+  hash = macHash(conn->hismac) & this->hashmask;
   for (p = this->hash[hash]; p; p = p->nexthash)
     p_prev = p;
   if (!p_prev)
@@ -162,27 +177,6 @@ int ip_addHash(struct gateway_t *this, struct ipconnections_t *conn) {
     p_prev->nexthash = conn;
 
   return 0; /* Always OK to insert */
-}
-
-
-/**dhcp_hashget()
- * Uses the hash tables to find a connection based on the mac address.
- **/
-static int ip_getHash(struct gateway_t *this, struct ipconnections_t **conn,
-		 uint8_t *hwaddr) {
-  struct ipconnections_t *p;
-  uint32_t hash;
-
-  /* Find in hash table */
-  hash = macHash(hwaddr) & this->hashmask;
-  for (p = this->hash[hash]; p; p = p->nexthash) {
-    if ((!memcmp(p->hismac, hwaddr, PKT_ETH_ALEN)) && (p->inuse)) {
-      *conn = p;
-      return 0;
-    }
-  }
-  *conn = NULL;
-  return -1; /* Address could not be found */
 }
 
 
@@ -264,6 +258,26 @@ static int parse_ip_aton(struct in_addr *addr, struct in_addr *mask, char *pool)
     addr->s_addr = htonl(a1 * 0x1000000 + a2 * 0x10000 + a3 * 0x100 + a4);
 
   return 0;
+}
+
+
+int ippool_hashadd(struct ippool_t *this, struct ippoolm_t *member) {
+  uint32_t hash;
+  struct ippoolm_t *p = NULL;
+  struct ippoolm_t *p_prev = NULL;
+
+  /* Insert into hash table */
+  hash = ippool_hash4(&member->addr) & this->hashmask;
+
+  for (p = this->hash[hash]; p; p = p->nexthash)
+    p_prev = p;
+
+  if (!p_prev)
+    this->hash[hash] = member;
+  else
+    p_prev->nexthash = member;
+
+  return 0; /* Always OK to insert */
 }
 
 int ippool_freeip(struct ippool_t *this, struct ippoolm_t *member) {
@@ -513,6 +527,28 @@ static int ippool_new(struct ippool_t **this, char *dyn, int start, int end) {
   return 0;
 }
 
+
+/* Find an IP address in the pool */
+static int ippoolGetip(struct ippool_t *this,
+		 struct ippoolm_t **member,
+		 struct in_addr *addr) {
+  struct ippoolm_t *p;
+  uint32_t hash;
+
+  /* Find in hash table */
+  hash = ippool_hash4(addr) & this->hashmask;
+  for (p = this->hash[hash]; p; p = p->nexthash) {
+    if ((p->addr.s_addr == addr->s_addr) && (p->in_use)) {
+      if (member) *member = p;
+      return 0;
+    }
+  }
+
+  if (member) *member = NULL;
+  return -1;
+}
+
+
 static size_t icmpfrag(struct gateway_t *this,
 		uint8_t *pack, size_t plen, uint8_t *orig_pack) {
   /*
@@ -579,68 +615,31 @@ static size_t icmpfrag(struct gateway_t *this,
   return icmp_full_len;
 }
 
-/** dhcp_release_mac & dhcp_freeconn
-.Delete a client's instance from the gateway
- **/
-void releaseConnection(struct gateway_t *this, uint8_t *hwaddr, struct ipconnections_t *conn) {
-	if(!conn){
-		 if (ip_getHash(this, &conn, hwaddr)) {
-			 return;
-		 }
-	}
 
-	debug(LOG_INFO, "DHCP Released MAC="MAC_FMT" IP=%s",
-	         MAC_ARG(conn->hismac), inet_ntoa(conn->hisip));
+/* Compare a MAC address to the addresses given in the macallowed option */
+int static maccmp(unsigned char *mac, s_gwOptions *option) {
+  int i;
 
-	  if (conn->uplink) {
-	    struct ippoolm_t *member = (struct ippoolm_t *) conn->uplink;
+  for (i=0; i < option->macoklen; i++)
+    if (!memcmp(mac, option->macok[i], PKT_ETH_ALEN))
+      return 0;
 
-	    if (member->in_use && (!conn || !conn->is_reserved)) {
-	      if (ippool_freeip(this->ippool, member)) {
-	    	  debug(LOG_ERR, "ippool_freeip(%s) failed!",
-	               inet_ntoa(member->addr));
-	      }
-	    }
-	  }
-
-	  debug(LOG_DEBUG, "DHCP freeconn: "MAC_FMT,
-	           MAC_ARG(conn->hismac));
-
-	  /* First remove from hash table */
-	  ip_delHash(this, conn);
-
-	  /* Remove from link of used */
-	  if ((conn->next) && (conn->prev)) {
-	    conn->next->prev = conn->prev;
-	    conn->prev->next = conn->next;
-	  }
-	  else if (conn->next) { /* && prev == 0 */
-	    conn->next->prev = NULL;
-	    this->firstusedconn = conn->next;
-	  }
-	  else if (conn->prev) { /* && next == 0 */
-	    conn->prev->next = NULL;
-	    this->lastusedconn = conn->prev;
-	  }
-	  else { /* if ((next == 0) && (prev == 0)) */
-	    this->firstusedconn = NULL;
-	    this->lastusedconn = NULL;
-	  }
-
-	  /* Initialise structures */
-	  memset(conn, 0, sizeof(*conn));
-
-	  /* Insert into link of free */
-	  if (this->firstfreeconn) {
-	    this->firstfreeconn->prev = conn;
-	  }
-	  else { /* First insert */
-	    this->lastfreeconn = conn;
-	  }
-
-	  conn->next = this->firstfreeconn;
-	  this->firstfreeconn = conn;
+  return -1;
 }
+
+
+static
+int setEthhdr(uint8_t *packet, uint8_t *hismac,
+                uint8_t *nexthop, uint16_t prot) {
+
+    struct pkt_ethhdr_t *pack_ethh = pkt_ethhdr(packet);
+    copy_mac6(pack_ethh->dst, hismac);
+    copy_mac6(pack_ethh->src, nexthop);
+    pack_ethh->prot = htons(prot);
+
+  return 0;
+}
+
 
 /**
  * Allocates/link a new connection from the pool.
@@ -695,43 +694,62 @@ static int addConnection(struct gateway_t *this, struct ipconnections_t **conn) 
   return 0; /* Success */
 }
 
-/**dhcp_newconn()
- * Allocates a new connection from the pool.
+static
+int undoDnat(struct ipconnections_t *conn,
+		   struct pkt_ethhdr_t *ethh,
+		   struct pkt_iphdr_t  *iph,
+		   struct pkt_tcphdr_t *tcph) {
+  int n;
+  for (n=0; n < DHCP_DNAT_MAX; n++) {
+
+    if (iph->daddr == conn->dnat[n].src_ip &&
+	tcph->dst == conn->dnat[n].src_port) {
+
+      iph->saddr = conn->dnat[n].dst_ip;
+      tcph->src = conn->dnat[n].dst_port;
+
+      chksum(iph);
+
+      return 0;
+    }
+  }
+  return 0;
+}
+/**
+ * dhcp_undoDNAT()
+ * Change source address back to original server
  **/
-int ip_newConnection(struct gateway_t *this, struct ipconnections_t **conn,
-		 uint8_t *hwaddr)
-{
+static
+int checkHttpUndoDNAT(struct ipconnections_t *conn,
+		  uint8_t *pack, size_t *plen,
+		  char do_reset, char *do_checksum) {
+  struct gateway_t *this = conn->parent;
+  struct pkt_ethhdr_t *ethh = pkt_ethhdr(pack);
+  struct pkt_iphdr_t  *iph  = pkt_iphdr(pack);
+  struct pkt_tcphdr_t *tcph = pkt_tcphdr(pack);
 
-	s_gwOptions *gwOptions = get_gwOptions();
-  debug(LOG_DEBUG, "IP newconn: "MAC_FMT"", MAC_ARG(hwaddr));
+  /* Allow localhost through network... */
+  if (iph->saddr == INADDR_LOOPBACK)
+    return 0;
 
-  if (addConnection(this, conn) != 0)
-    return -1;
+  if (iph->protocol == PKT_IP_PROTO_ICMP) {
+    /* Was it an ICMP reply from us? */
+    if (iph->saddr == conn->ourip.s_addr) {
 
-  (*conn)->inuse = 1;
-  (*conn)->parent = this;
-  (*conn)->mtu = this->mtu;
-
-  /* Application specific initialisations */
-  memcpy((*conn)->hismac, hwaddr, PKT_ETH_ALEN);
-
-  (*conn)->lasttime = mainclock_tick();
-  (*conn)->dhcpstate = 0;
-
-  ip_addHash(this, *conn);
-
-  /*Jerome TBD for MAC allowed list*/
-  if ((gwOptions->macoklen) && !maccmp((*conn)->hismac, gwOptions)) {
-	  (*conn)->authstate = DHCP_AUTH_PASS;
-	  debug(LOG_DEBUG, "cb_dhcp_connect. MAC "MAC_FMT" is allowed.\n", MAC_ARG((*conn)->hismac));
-  }else{
-	  (*conn)->authstate = DHCP_AUTH_DNAT;
+      return 0;
+    }
   }
 
-  (*conn)->dns1 = gwOptions->dns1;
-  (*conn)->dns2 = gwOptions->dns2;
+  /* Was it a reply from redir server? */
+  if ( (iph->saddr == this->ourip.s_addr) &&
+       (iph->protocol == PKT_IP_PROTO_TCP) &&
+       (tcph->src == htons(this->uamport))) {
 
-  return 0; /* Success */
+    *do_checksum = 1;
+    return undoDnat(conn, ethh, iph, tcph);
+  }
+
+  return -1; /* Something else */
 }
 
 
@@ -777,122 +795,6 @@ int doDnat(struct ipconnections_t *conn,
   return 0;
 }
 
-
-/**
- * Call this function to send an IP packet to the peer.
- **/
-int tun_sndDataProcess(struct ipconnections_t *conn,
-		  struct pkt_buffer *pb, int ethhdr) {
-
-  struct gateway_t *pgateway = conn->parent;
-
-  uint8_t *packet = pkt_buffer_head(pb);
-  size_t length = pkt_buffer_length(pb);
-
-
-  char do_checksum = 0;
-  char allowed = 0;
-
-  int authstate = 0;
-
-  if (ethhdr) {
-    /*
-     * Ethernet frame
-     */
-    size_t hdrplus = sizeofeth2(tag) - sizeofeth(packet);
-    if (hdrplus > 0) {
-      if (pb->offset < hdrplus) {
-	debug(LOG_ERR, "bad buffer off=%d hdrplus=%d",
-               (int) pb->offset, (int) hdrplus);
-	return 0;
-      }
-      pkt_buffer_grow(pb, hdrplus);
-      packet = pkt_buffer_head(pb);
-      length = pkt_buffer_length(pb);
-    }
-  } else {
-    size_t hdrlen = sizeofeth2(tag);
-    if (pb->offset < hdrlen) {
-      debug(LOG_ERR, "bad buffer off=%d hdr=%d",
-             (int) pb->offset, (int) hdrlen);
-      return 0;
-    }
-    pkt_buffer_grow(pb, hdrlen);
-    packet = pkt_buffer_head(pb);
-    length = pkt_buffer_length(pb);
-	debug(LOG_DEBUG, "adding %zd to IP frame length %zd",   hdrlen, length);
-  }
-
-  if (!pgateway) {
-    debug(LOG_WARNING, "DHCP connection no longer valid");
-    return 0;
-  }
-
-  authstate = conn->authstate;
-
-  dhcp_ethhdr(conn, packet, conn->hismac, pgateway->rawIf[0].hwaddr, PKT_ETH_PROTO_IP);
-
-  struct pkt_iphdr_t  *pack_iph  = pkt_iphdr(packet);
-  struct pkt_udphdr_t *pack_udph = pkt_udphdr(packet);
-
-  /* Was it a DNS response? */
-  if (pack_iph->protocol == PKT_IP_PROTO_UDP &&
-		  pack_udph->src == htons(DHCP_DNS)) {
-  	debug(LOG_DEBUG, "A DNS response");
-  	allowed = 1; /* Is allowed DNS */
-
-  }
-
-  switch (authstate) {
-
-    case DHCP_AUTH_PASS:
-//      dhcp_postauthDNAT(conn, packet, length, 1, &do_checksum);
-      break;
-
-    case DHCP_AUTH_DNAT:
-    case DHCP_AUTH_NONE:
-      /* undo destination NAT */
-      if (dhcp_undoDNAT(conn, packet, &length, 1, &do_checksum) && !allowed) {
-    	debug(LOG_DEBUG, "dhcp_undoDNAT() returns true");
-        return 0;
-      }
-      break;
-
-    case DHCP_AUTH_DROP:
-		debug(LOG_DEBUG, "drop");
-    	return 0;
-    default:
-		debug(LOG_DEBUG, "Unhandled authstate %d",   authstate);
-    	return 0;
-  }
-
-  if (do_checksum)
-      chksum(pkt_iphdr(packet));
-
-  return gw_sendDlData(pgateway, 0, conn->hismac, packet, length);
-}
-
-/* Find an IP address in the pool */
-static int ippoolGetip(struct ippool_t *this,
-		 struct ippoolm_t **member,
-		 struct in_addr *addr) {
-  struct ippoolm_t *p;
-  uint32_t hash;
-
-  /* Find in hash table */
-  hash = ippool_hash4(addr) & this->hashmask;
-  for (p = this->hash[hash]; p; p = p->nexthash) {
-    if ((p->addr.s_addr == addr->s_addr) && (p->in_use)) {
-      if (member) *member = p;
-      return 0;
-    }
-  }
-
-  if (member) *member = NULL;
-  return -1;
-}
-
-
 /**
  * dhcp_doDNAT()
  * Change destination address to authentication server.
@@ -934,6 +836,82 @@ int checkHttpDnat(struct ipconnections_t *conn, uint8_t *pack,
   return -1; /* Something else */
 }
 
+
+/**
+ * Call this function to send an IP packet to the peer.
+ **/
+static int tunDataProcess(struct ipconnections_t *conn,
+		  struct pkt_buffer *pb, int ethhdr) {
+
+  struct gateway_t *pgateway = conn->parent;
+
+  uint8_t *packet = pkt_buffer_head(pb);
+  size_t length = pkt_buffer_length(pb);
+
+
+  char do_checksum = 0;
+  char allowed = 0;
+
+  int authstate = 0;
+
+    size_t hdrlen = sizeofeth2(tag);
+    if (pb->offset < hdrlen) {
+      debug(LOG_ERR, "bad buffer off=%d hdr=%d",
+             (int) pb->offset, (int) hdrlen);
+      return 0;
+    }
+    pkt_buffer_grow(pb, hdrlen);
+    packet = pkt_buffer_head(pb);
+    length = pkt_buffer_length(pb);
+	debug(LOG_DEBUG, "adding %zd to IP frame length %zd",   hdrlen, length);
+
+  if (!pgateway) {
+    debug(LOG_WARNING, "DHCP connection no longer valid");
+    return 0;
+  }
+
+  authstate = conn->authstate;
+
+  setEthhdr(packet, conn->hismac, pgateway->rawIf[0].hwaddr, PKT_ETH_PROTO_IP);
+
+  struct pkt_iphdr_t  *pack_iph  = pkt_iphdr(packet);
+  struct pkt_udphdr_t *pack_udph = pkt_udphdr(packet);
+
+  /* Was it a DNS response? */
+  if (pack_iph->protocol == PKT_IP_PROTO_UDP &&
+		  pack_udph->src == htons(DHCP_DNS)) {
+  	debug(LOG_DEBUG, "A DNS response");
+  	allowed = 1; /* Is allowed DNS */
+
+  }
+
+  switch (authstate) {
+
+    case AUTH_CLIENT:
+      break;
+
+    case NEW_CLIENT:
+      /* undo destination NAT */
+      if (checkHttpUndoDNAT(conn, packet, &length, 1, &do_checksum) && !allowed) {
+    	debug(LOG_DEBUG, "checkHttpUndoDNAT() returns true");
+        return 0;
+      }
+      break;
+
+    case DROP_CLIENT:
+		debug(LOG_DEBUG, "drop");
+    	return 0;
+
+    default:
+		debug(LOG_DEBUG, "Unhandled authstate %d",   authstate);
+    	return 0;
+  }
+
+  if (do_checksum)
+      chksum(pkt_iphdr(packet));
+
+  return gw_sendDlData(pgateway, 0, conn->hismac, packet, length);
+}
 
 /**
  * Allocates a new instance of the library
@@ -1027,10 +1005,7 @@ int tun_rcvIp(struct gateway_t *pgateway, struct pkt_buffer *pb) {
   debug(LOG_DEBUG, "TUN sending packet to : %s", inet_ntoa(dst));
 
   if (ippoolGetip(pgateway->ippool, &ipm, &dst)) {
-    /*
-     *  Jerome TBD: If within statip range, allow the packet through (?)
-     */
-		debug(LOG_DEBUG, "dropping packet with unknown destination: %s",   inet_ntoa(dst));
+	debug(LOG_DEBUG, "dropping packet with unknown destination: %s",   inet_ntoa(dst));
     return 0;
   }
 
@@ -1041,27 +1016,8 @@ int tun_rcvIp(struct gateway_t *pgateway, struct pkt_buffer *pb) {
     return 0;
   }
 
-  /*Jerome: J-Module modified. Not judged by client's authstate, but by DHCP conn's
-
-  switch (conn->authstate) {
-    case DHCP_AUTH_NONE:
-    case DHCP_AUTH_DROP:
-    case DHCP_AUTH_DNAT:
-		debug(LOG_DEBUG, "Dropping...");
-      break;
-
-    case DHCP_AUTH_PASS:
-      tun_sndDataProcess((struct dhcp_conn_t *)client->dnlink, pb, ethhdr);
-      break;
-
-    default:
-      debug(LOG_ERR, "Unknown downlink protocol: %d", conn->authstate);
-      break;
-  }
-End Jerome*/
-  tun_sndDataProcess(connection, pb, ethhdr);
+  tunDataProcess(connection->dnlink, pb, ethhdr);
   return 0;
-
 }
 
 
@@ -1108,7 +1064,7 @@ int raw_rcvIp(struct rawif_in *ctx, uint8_t *pack, size_t len) {
   /*
    *  Check that the destination MAC address is our MAC or Broadcast
    */
-  if ((memcmp(pack_ethh->dst, dhcp_nexthop(this), PKT_ETH_ALEN)) &&
+  if ((memcmp(pack_ethh->dst, this->rawIf[0].hwaddr, PKT_ETH_ALEN)) &&
       (memcmp(pack_ethh->dst, broadcastmac, PKT_ETH_ALEN))) {
 
 	  debug(LOG_DEBUG, "Not for our MAC or broadcast: "MAC_FMT"",
@@ -1229,7 +1185,7 @@ int raw_rcvIp(struct rawif_in *ctx, uint8_t *pack, size_t len) {
       debug(LOG_DEBUG, "dropping packet; out of connections");
       return 0; /* Out of connections */
     }
-    conn->hisip = reqaddr.s_addr;
+    conn->hisip.s_addr = reqaddr.s_addr;
   }
 
   /* Jerome TBD? Return if we do not know peer */
@@ -1241,6 +1197,9 @@ int raw_rcvIp(struct rawif_in *ctx, uint8_t *pack, size_t len) {
     return -1;
   }
 
+  struct in_addr addr;
+  addr.s_addr = pack_iph->saddr;
+
   /*Jerome: 判断是否本DHCP分配过地址，没有的话接受client使用的IP*/
   if ((conn->dhcpstate == 0) && (((pack_iph->daddr != 0) &&
            (pack_iph->daddr != 0xffffffff)))) {
@@ -1248,12 +1207,11 @@ int raw_rcvIp(struct rawif_in *ctx, uint8_t *pack, size_t len) {
 	  if((pack_iph->saddr & gwOptions->netmask.s_addr)
 			  != (gwOptions->tundevip.s_addr& gwOptions->netmask.s_addr)){
 
-		  debug(LOG_DEBUG, "Dropping packet; Client has static IP %s not in our net", inet_ntoa(pack_iph->saddr));
+		  debug(LOG_DEBUG, "Dropping packet; Client has static IP %s not in our net", inet_ntoa(addr));
 		  return 0; // Ignore request if IP address was not allocated
 	  }else{
-		  struct in_addr addr;
-		  addr.s_addr = pack_iph->saddr;
-		  if (allocDhcpCLientIP(conn, &addr, 0, 0)) {
+
+		  if (ip_allocClientIP(conn, &addr, 0, 0)) {
 
 			 debug(LOG_DEBUG, "Dropping packet; Client's ip %s cannot be allocated", inet_ntoa(addr));
 			 return 0; // Ignore request if IP address was not allocated
@@ -1306,28 +1264,19 @@ int raw_rcvIp(struct rawif_in *ctx, uint8_t *pack, size_t len) {
 
   debug(LOG_DEBUG, "DHCP received packet with authentic state %d", authstate);
   switch (authstate) {
-    case DHCP_AUTH_PASS:
+    case AUTH_CLIENT:
       /* Packet go through with this state of the client*/
       break;
 
-    case DHCP_AUTH_DNAT:
-        /* Http request will be DNAT, others are dropped, unless it is allowed DNS*/
+    case NEW_CLIENT:
+        /* Http request will be DNAT, others are dropped, unless it is allowed DNS or LAN packets*/
       if (checkHttpDnat(conn, pack, len, 1, &do_checksum) && !allowed) {
         debug(LOG_DEBUG, "dropping packet; not nat'ed");
         return 0;
       }
       break;
 
-    case DHCP_AUTH_NONE:
-        /* Local destination is allowed*/
-      if ((pack_iph->daddr & this->netmask.s_addr)
-	 		  != (this->ourip.s_addr & this->netmask.s_addr)) {
-        debug(LOG_DEBUG, "Dropping packet not in local net");
-        return 0;
-      }
-      break;
-
-    case DHCP_AUTH_DROP:
+    case DROP_CLIENT:
       debug(LOG_DEBUG, "dropping packet; auth-drop");
       return 0;
 
@@ -1342,17 +1291,224 @@ int raw_rcvIp(struct rawif_in *ctx, uint8_t *pack, size_t len) {
   if (do_checksum)
     chksum(pack_iph);
 
-  if (this->cb_data_ind) {
-	  srcaddr.s_addr = pack_iph->saddr;
-	  dstaddr.s_addr = pack_iph->daddr;
-	  debug(LOG_DEBUG, "DHCP sending packet from IP %s", inet_ntoa(srcaddr));
-	  debug(LOG_DEBUG, "DHCP sending packet to IP %s of length %d", inet_ntoa(dstaddr), len);
+  debug(LOG_DEBUG, "cb_dhcp_data_ind. Packet is sending via Tun. DHCP authstate: %d",
+    conn->authstate);
+  srcaddr.s_addr = pack_iph->saddr;
+  dstaddr.s_addr = pack_iph->daddr;
+  debug(LOG_DEBUG, "DHCP sending packet from IP %s", inet_ntoa(srcaddr));
+  debug(LOG_DEBUG, "DHCP sending packet to IP %s of length %d", inet_ntoa(dstaddr), len);
 
-    this->cb_data_ind(conn, pack, len);
-  } else {
-    debug(LOG_DEBUG, "Call cb_date_ind fail; packet-drop");
+  gw_sendUlData(conn, pack, len);
+  return 0;
+}
+
+
+/**dhcp_newconn()
+ * Allocates a new connection from the pool.
+ **/
+int ip_newConnection(struct gateway_t *this, struct ipconnections_t **conn,
+		 uint8_t *hwaddr)
+{
+
+	s_gwOptions *gwOptions = get_gwOptions();
+  debug(LOG_DEBUG, "IP newconn: "MAC_FMT"", MAC_ARG(hwaddr));
+
+  if (addConnection(this, conn) != 0)
+    return -1;
+
+  (*conn)->inuse = 1;
+  (*conn)->parent = this;
+  (*conn)->mtu = this->mtu;
+
+  /* Application specific initialisations */
+  memcpy((*conn)->hismac, hwaddr, PKT_ETH_ALEN);
+
+  (*conn)->lasttime = mainclock_tick();
+  (*conn)->dhcpstate = 0;
+
+  ip_addHash(this, *conn);
+
+  /*Jerome TBD for MAC allowed list*/
+  if ((gwOptions->macoklen) && !maccmp((*conn)->hismac, gwOptions)) {
+	  (*conn)->authstate = AUTH_CLIENT;
+	  debug(LOG_DEBUG, "cb_dhcp_connect. MAC "MAC_FMT" is allowed.\n", MAC_ARG((*conn)->hismac));
+  }else{
+	  (*conn)->authstate = NEW_CLIENT;
   }
+
+  (*conn)->dns1 = gwOptions->dns1;
+  (*conn)->dns2 = gwOptions->dns2;
+
+  return 0; /* Success */
+}
+
+
+/* DHCP allocate new IP address */
+int ip_allocClientIP(struct ipconnections_t *conn, struct in_addr *addr,
+		    uint8_t *dhcp_pkt, size_t dhcp_len) {
+
+	s_gwOptions *gwOptions = get_gwOptions();
+	struct gateway_t *pgateway = conn->parent;
+  struct ippoolm_t *ipm = 0;
+
+
+  debug(LOG_DEBUG, "DHCP request for MAC "MAC_FMT" with IP address %s",
+		  MAC_ARG(conn->hismac),
+         addr ? inet_ntoa(*addr) : "n/a");
+
+  struct in_addr reqip;
+  reqip.s_addr = addr ? addr->s_addr : 0;
+
+  if (conn->uplink) {
+
+    /*  IP Address is already known and allocated.*/
+    ipm = (struct ippoolm_t*) conn->uplink;
+
+  } else {
+
+	    if (conn->hisip.s_addr) {
+	      debug(LOG_WARNING, "Requested IP address when already allocated (hisip %s)",
+	             inet_ntoa(conn->hisip));
+	      reqip.s_addr = conn->hisip.s_addr;
+	    }
+
+	    /* Allocate IP address */
+	    if (ippool_newip(pgateway->ippool, &ipm, &reqip)) {
+	        debug(LOG_ERR, "Failed to allocate either static or dynamic IP address");
+	        return -1;
+	    }
+
+	    conn->hisip.s_addr = ipm->addr.s_addr;
+	    conn->hismask.s_addr = gwOptions->netmask.s_addr;
+
+	    debug(LOG_DEBUG, "Successfully allocate client MAC="MAC_FMT" assigned IP %s" ,
+	             MAC_ARG(conn->hismac), inet_ntoa(conn->hisip));
+
+	    if (!conn->ourip.s_addr)
+	    	conn->ourip.s_addr = gwOptions->tundevip.s_addr;
+
+	    conn->uplink = ipm;
+	    ipm->peer = conn;
+
+  }
+
+   if (ipm) {
+	  conn->hisip.s_addr = ipm->addr.s_addr;
+	  conn->hismask.s_addr = gwOptions->netmask.s_addr;
+	  conn->ourip.s_addr = gwOptions->tundevip.s_addr;
+   }
+
+  if (conn->authstate != AUTH_CLIENT)
+	  conn->authstate = NEW_CLIENT;
 
   return 0;
 }
 
+
+
+/**dhcp_hashget()
+ * Uses the hash tables to find a connection based on the mac address.
+ **/
+int ip_getHash(struct gateway_t *this, struct ipconnections_t **conn,
+		 uint8_t *hwaddr) {
+  struct ipconnections_t *p;
+  uint32_t hash;
+
+  /* Find in hash table */
+  hash = macHash(hwaddr) & this->hashmask;
+  for (p = this->hash[hash]; p; p = p->nexthash) {
+    if ((!memcmp(p->hismac, hwaddr, PKT_ETH_ALEN)) && (p->inuse)) {
+      *conn = p;
+      return 0;
+    }
+  }
+  *conn = NULL;
+  return -1; /* Address could not be found */
+}
+
+
+/** dhcp_release_mac & dhcp_freeconn
+.Delete a client's instance from the gateway
+ **/
+void ip_relConnection(struct gateway_t *this, uint8_t *hwaddr, struct ipconnections_t *conn) {
+	if(!conn){
+		 if (ip_getHash(this, &conn, hwaddr)) {
+			 return;
+		 }
+	}
+
+	debug(LOG_INFO, "DHCP Released MAC="MAC_FMT" IP=%s",
+	         MAC_ARG(conn->hismac), inet_ntoa(conn->hisip));
+
+	  if (conn->uplink) {
+	    struct ippoolm_t *member = (struct ippoolm_t *) conn->uplink;
+
+	    if (member->in_use && (!conn || !conn->is_reserved)) {
+	      if (ippool_freeip(this->ippool, member)) {
+	    	  debug(LOG_ERR, "ippool_freeip(%s) failed!",
+	               inet_ntoa(member->addr));
+	      }
+	    }
+	  }
+
+	  debug(LOG_DEBUG, "DHCP freeconn: "MAC_FMT,
+	           MAC_ARG(conn->hismac));
+
+	  /* First remove from hash table */
+	  ip_delHash(this, conn);
+
+	  /* Remove from link of used */
+	  if ((conn->next) && (conn->prev)) {
+	    conn->next->prev = conn->prev;
+	    conn->prev->next = conn->next;
+	  }
+	  else if (conn->next) { /* && prev == 0 */
+	    conn->next->prev = NULL;
+	    this->firstusedconn = conn->next;
+	  }
+	  else if (conn->prev) { /* && next == 0 */
+	    conn->prev->next = NULL;
+	    this->lastusedconn = conn->prev;
+	  }
+	  else { /* if ((next == 0) && (prev == 0)) */
+	    this->firstusedconn = NULL;
+	    this->lastusedconn = NULL;
+	  }
+
+	  /* Initialise structures */
+	  memset(conn, 0, sizeof(*conn));
+
+	  /* Insert into link of free */
+	  if (this->firstfreeconn) {
+	    this->firstfreeconn->prev = conn;
+	  }
+	  else { /* First insert */
+	    this->lastfreeconn = conn;
+	  }
+
+	  conn->next = this->firstfreeconn;
+	  this->firstfreeconn = conn;
+}
+
+
+/**
+ * dhcp_timeout()
+ * Need to call this function at regular intervals to clean up old connections.
+ **/
+int ip_checkTimeout(struct gateway_t *this)
+{
+	  struct ipconnections_t *conn = this->firstusedconn;
+
+	  while (conn) {
+	//    debug(LOG_DEBUG, "dhcp_checkconn: %d %d", mainclock_diff(conn->lasttime), (int) this->lease);
+
+	    struct ipconnections_t *check_conn = conn;
+	    conn = conn->next;
+	    if ((int)(mainclock.tv_sec - check_conn->lasttime) > (int)this->lease ) {
+	      debug(LOG_DEBUG, "DHCP timeout: Removing connection");
+	      ip_relConnection(this, check_conn->hismac, check_conn);
+	    }
+	  }
+
+	  return 0;
+}

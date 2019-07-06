@@ -385,7 +385,7 @@ parse_internal_interface(FILE * file, const char *filename, int *linenum)
 
             /* Get opcode */
             debug(LOG_DEBUG, "Parsing token: %s, " "value: %s", p1, p2);
-            opcode = config_parse_token(p1, filename, *linenum);
+            opcode = option_parse_token(p1, filename, *linenum);
 
             switch (opcode) {
             case oInternalIfDev:

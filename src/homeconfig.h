@@ -60,6 +60,44 @@
 #define MAX_RAWIF 1
 #endif
 
+/**
+ * Trusted MAC Addresses
+ */
+typedef struct _trusted_mac_t {
+    char *mac;
+    struct _trusted_mac_t *next;
+} t_trusted_mac;
+
+/**
+ * Popular Servers
+ */
+typedef struct _popular_server_t {
+    char *hostname;
+    struct _popular_server_t *next;
+} t_popular_server;
+
+
+
+/**
+ * Information about the authentication server
+ */
+typedef struct _auth_serv_t {
+    char *authserv_hostname;    /**< @brief Hostname of the central server */
+    char *authserv_path;        /**< @brief Path where wifidog resides */
+    char *authserv_login_script_path_fragment;  /**< @brief This is the script the user will be sent to for login. */
+    char *authserv_portal_script_path_fragment; /**< @brief This is the script the user will be sent to after a successfull login. */
+    char *authserv_msg_script_path_fragment;    /**< @brief This is the script the user will be sent to upon error to read a readable message. */
+    char *authserv_ping_script_path_fragment;   /**< @brief This is the ping heartbeating script. */
+    char *authserv_auth_script_path_fragment;   /**< @brief This is the script that talks the wifidog gateway protocol. */
+    int authserv_http_port;     /**< @brief Http port the central server
+				     listens on */
+    int authserv_ssl_port;      /**< @brief Https port the central server
+				     listens on */
+    int authserv_use_ssl;       /**< @brief Use SSL or not */
+    char *last_ip;      /**< @brief Last ip used by authserver */
+    struct _auth_serv_t *next;
+} t_auth_serv;
+
 
 /**
  * Configuration structure
@@ -118,43 +156,6 @@ typedef struct {
     t_popular_server *popular_servers; /**< @brief list of popular servers */
 
 } s_gwOptions;
-
-/**
- * Information about the authentication server
- */
-typedef struct _auth_serv_t {
-    char *authserv_hostname;    /**< @brief Hostname of the central server */
-    char *authserv_path;        /**< @brief Path where wifidog resides */
-    char *authserv_login_script_path_fragment;  /**< @brief This is the script the user will be sent to for login. */
-    char *authserv_portal_script_path_fragment; /**< @brief This is the script the user will be sent to after a successfull login. */
-    char *authserv_msg_script_path_fragment;    /**< @brief This is the script the user will be sent to upon error to read a readable message. */
-    char *authserv_ping_script_path_fragment;   /**< @brief This is the ping heartbeating script. */
-    char *authserv_auth_script_path_fragment;   /**< @brief This is the script that talks the wifidog gateway protocol. */
-    int authserv_http_port;     /**< @brief Http port the central server
-				     listens on */
-    int authserv_ssl_port;      /**< @brief Https port the central server
-				     listens on */
-    int authserv_use_ssl;       /**< @brief Use SSL or not */
-    char *last_ip;      /**< @brief Last ip used by authserver */
-    struct _auth_serv_t *next;
-} t_auth_serv;
-
-/**
- * Trusted MAC Addresses
- */
-typedef struct _trusted_mac_t {
-    char *mac;
-    struct _trusted_mac_t *next;
-} t_trusted_mac;
-
-/**
- * Popular Servers
- */
-typedef struct _popular_server_t {
-    char *hostname;
-    struct _popular_server_t *next;
-} t_popular_server;
-
 
 
 /** @brief Get the current gateway configuration */

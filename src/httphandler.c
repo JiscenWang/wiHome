@@ -16,6 +16,37 @@
 #include <pthread.h>
 #include <time.h>
 
+#include "common.h"
+#include "httpd.h"
+#include "homeconfig.h"
+#include "debug.h"
+
+#include "../config.h"
+
+
+/** @brief Sends a redirect to the web browser
+ * @param r The request
+ * @param url The url to redirect to
+ * @param text The text to include in the redirect header and the manual redirect link title.  NULL is acceptable */
+void
+http_send_redirect(request * r, const char *url, const char *text)
+{
+    char *message = NULL;
+    char *header = NULL;
+    char *response = NULL;
+    /* Re-direct them to auth server */
+    debug(LOG_DEBUG, "Redirecting client browser to %s", url);
+    safe_asprintf(&header, "Location: %s", url);
+    safe_asprintf(&response, "302 %s\n", text ? text : "Redirecting");
+    httpdSetResponse(r, response);
+    httpdAddHeader(r, header);
+    free(response);
+    free(header);
+    safe_asprintf(&message, "Please <a href='%s'>click here</a>.", url);
+    send_http_page(r, text ? text : "Redirection to message", message);
+    free(message);
+}
+
 
 /** The 302 handler is responsible for redirecting to the portal page*/
 static void
@@ -79,31 +110,7 @@ http_callback_about(httpd * webserver, request * r)
 }
 
 
-/** @brief Sends a redirect to the web browser
- * @param r The request
- * @param url The url to redirect to
- * @param text The text to include in the redirect header and the manual redirect link title.  NULL is acceptable */
-static void
-http_send_redirect(request * r, const char *url, const char *text)
-{
-    char *message = NULL;
-    char *header = NULL;
-    char *response = NULL;
-    /* Re-direct them to auth server */
-    debug(LOG_DEBUG, "Redirecting client browser to %s", url);
-    safe_asprintf(&header, "Location: %s", url);
-    safe_asprintf(&response, "302 %s\n", text ? text : "Redirecting");
-    httpdSetResponse(r, response);
-    httpdAddHeader(r, header);
-    free(response);
-    free(header);
-    safe_asprintf(&message, "Please <a href='%s'>click here</a>.", url);
-    send_http_page(r, text ? text : "Redirection to message", message);
-    free(message);
-}
-
-
-static void
+void
 send_http_page(request * r, const char *title, const char *message)
 {
 	s_gwOptions *gwOptions = get_gwOptions();

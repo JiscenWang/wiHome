@@ -5,7 +5,21 @@
  *      Author: jerome
  */
 
+#include <syslog.h>
+#include <errno.h>
+#include <stdio.h>
+#include <string.h>
+#include <stdlib.h>
+#include <unistd.h>
 
+#include "common.h"
+#include "gatewayapi.h"
+#include "debug.h"
+#include "homenet.h"
+#include "ipprocessing.h"
+#include "functions.h"
+
+#include "homeconfig.h"
 
 static ssize_t
 fullDnsName(char *data, size_t dlen,      /* buffer to store name */
@@ -133,7 +147,7 @@ int sendDnsNak(struct ipconnections_t *conn, uint8_t *pack, size_t len) {
   return 0;
 }
 
-static int matchRedirectDns(uint8_t *r, char *name) {
+static int matchRedirectHost(uint8_t *r, char *name) {
   int r_len = strlen((char *)r);
   int name_len = strlen(name);
 
@@ -208,7 +222,7 @@ int dnsHandler(struct ipconnections_t *conn, uint8_t *pack, size_t *plen) {
         int match = 0;
 
         if (!match && hostname) {
-        	match = matchRedirectDns(q, hostname);
+        	match = matchRedirectHost(q, hostname);
         	if (match) {
         		memcpy(reply, &gwOptions->tundevip.s_addr, 4);
         	}

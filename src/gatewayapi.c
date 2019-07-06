@@ -20,24 +20,32 @@
 #include "debug.h"
 #include "homeconfig.h"
 #include "homenet.h"
-
+#include "functions.h"
 #include "httpd.h"
 #include "gatewayapi.h"
 #include "gatewaymain.h"
 #include "ipprocessing.h"
+#include "arphandler.h"
 
 
 /**
  tun_write
  **/
-static int gw_callTunWrite(struct _net_interface *tun, uint8_t *pack, size_t len) {
-	  return safe_write(tun->fd, pack, len);
+static int callTunWrite(struct gateway_t *pgateway, uint8_t *pack, size_t len) {
+	int result;
+
+	debug(LOG_DEBUG, "Gateway tun (%s) fd=%d sending packet len=%zd", pgateway->gwTun.devname, pgateway->gwTun.fd, len);
+	result = safe_write(pgateway->gwTun.fd, pack, len);
+	if (result < 0)
+		debug(LOG_ERR, "%s:Gateway tun write (%zu) = %d", strerror(errno), len, result);
+
+	return result;
 }
 
 /**
  * Open a tun device for home gateway
  **/
-static int gw_openTun(struct _net_interface *netif) {
+static int openTun(struct _net_interface *netif) {
   struct ifreq ifr;
   s_gwOptions *gwOptions = get_gwOptions();
 
@@ -81,14 +89,14 @@ static int gw_openTun(struct _net_interface *netif) {
 /**
 Setup raw sockets from internal interfaces for home gateway
  **/
-static int gw_openRawsocket(struct gateway_t *pgateway, char *interface) {
+static int openRawsocket(struct gateway_t *pgateway, char *interface) {
 	s_gwOptions *gwOptions = get_gwOptions();
 
   if (net_init(&pgateway->rawIf[0], interface, ETH_P_ALL, 1) < 0) {
 	debug(LOG_ERR, "%s: raw socket init failed", strerror(errno));
     return -1;
   }
-  debug(LOG_DEBUG, "Set gateway raw socket fd %d of dev %s", pgateway->rawIf[0].fd, pgateway->rawIf.devname);
+  debug(LOG_DEBUG, "Set gateway raw socket fd %d of dev %s", pgateway->rawIf[0].fd, pgateway->rawIf[0].devname);
 
 #ifdef ENABLE_MULTILAN
   {
@@ -110,7 +118,7 @@ static int gw_openRawsocket(struct gateway_t *pgateway, char *interface) {
 }
 
 
-static int gw_callNetSend(struct _net_interface *netif, unsigned char *hismac,
+static int callNetSend(struct _net_interface *netif, unsigned char *hismac,
 		  uint8_t *packet, size_t length) {
 
   if (hismac) {
@@ -267,24 +275,21 @@ int initGateway(struct gateway_t **ppgateway) {
     return -1;
   }
 
-  gw_openTun(&home_gateway->gwTun);
-  net_set_address(&homeGateway->gwTun, &gwOptions->tundevip, &gwOptions->tundevip, &gwOptions->netmask);
+  openTun(&home_gateway->gwTun);
+  net_set_address(&home_gateway->gwTun, &gwOptions->tundevip, &gwOptions->tundevip, &gwOptions->netmask);
   debug(LOG_DEBUG, "Set gateway IP address %s", inet_ntoa(gwOptions->tundevip));
 
-  if(gw_openRawsocket(home_gateway, gwOptions->internalif[0]))
+  if(openRawsocket(home_gateway, gwOptions->internalif[0]))
 	  return -1;
 
   /* Initialise various variables */
-  home_gateway->ourip.s_addr = gwOptions->tundevip;
+  home_gateway->ourip.s_addr = gwOptions->tundevip.s_addr;
   debug(LOG_DEBUG, "Set gateway listening IP %s", inet_ntoa(gwOptions->tundevip));
 
   home_gateway->uamport = gwOptions->gw_port;
   home_gateway->mtu = home_gateway->rawIf[0].mtu;
   home_gateway->netmask = gwOptions->netmask;
 
-  /* Initialise call back functions
-  dhcp->cb_data_ind = NULL;
-*/
   sendDlGARP(home_gateway, -1);
   return 0;
 }
@@ -301,7 +306,7 @@ int gw_sendDlData(struct gateway_t *this, int idx,
   if (idx < 0) {
     int i, ret = -1;
     for (i=0; i < MAX_RAWIF && this->rawIf[i].fd; i++)
-      ret = gw_callNetSend(&this->rawIf[i], hismac, packet, length);
+      ret = callNetSend(&this->rawIf[i], hismac, packet, length);
     return ret;
   }
   iface = &this->rawIf[idx];
@@ -309,27 +314,25 @@ int gw_sendDlData(struct gateway_t *this, int idx,
   iface = &this->rawIf[0];
 #endif
 
-  return gw_callNetSend(iface, hismac, packet, length);
+  return callNetSend(iface, hismac, packet, length);
 }
 
 
 /* cb_dhcp_data_ind */
 int gw_sendUlData(struct ipconnections_t *conn, uint8_t *pack, size_t len) {
-  int result;
+
   struct gateway_t *pgateway = conn->parent;
 
   debug(LOG_DEBUG, "Gateway sending Upstream packet is sending via Tun. Connection authstate: %d",
     conn->authstate);
 
   switch (conn->authstate) {
-    case DHCP_AUTH_DROP:
+    case DROP_CLIENT:
       debug(LOG_DEBUG, "Upstream packet is dropped for non-authentication");
       return -1;
 
-    case DHCP_AUTH_PASS:
-    case DHCP_AUTH_NONE:
-    case DHCP_AUTH_DNAT:
-
+    case AUTH_CLIENT:
+    case NEW_CLIENT:
       break;
 
     default:
@@ -341,12 +344,6 @@ int gw_sendUlData(struct ipconnections_t *conn, uint8_t *pack, size_t len) {
   pack += ethlen;
   len  -= ethlen;
 
-  debug(LOG_DEBUG, "Gateway tun (%s) fd=%d sending packet len=%zd", pgateway->gwTun.devname, pgateway->gwTun.fd, len);
+  return callTunWrite(pgateway, pack, len);
 
-  result = gw_callTunWrite(&pgateway->gwTun, pack, len);
-  if (result < 0)
-	  debug(LOG_ERR, "%s:Gateway tun write (%zu) = %d", strerror(errno), len, result);
-  return result;
 }
-
-

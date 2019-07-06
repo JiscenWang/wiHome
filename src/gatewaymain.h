@@ -7,6 +7,9 @@
 #include <stdio.h>
 
 #include "httpd.h"
+#include "homenet.h"
+#include "ipprocessing.h"
+#include "homeconfig.h"
 
 extern time_t started_time;
 
@@ -50,13 +53,8 @@ struct gateway_t {
 	int hashmask;                 /* Bitmask for calculating hash */
 	struct ipconnections_t **hash;    /* Hashsize array of pointer to member */
 
-#define tun(x,i) ((x)->_tuntap)
-#define tuntap(x) tun((x),0)
-
-#define tun_close(tun) net_close(&(tun)->_tuntap)
-
-//  void *table;
 };
 
+void termination_handler(int s);
 
 #endif                          /* _GATEWAY_H_ */

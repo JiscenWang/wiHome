@@ -1,5 +1,5 @@
 /*
- * jnet.h
+ * homenet.h
  *
  *  Created on: 2018年7月21日
  *      Author: jerome

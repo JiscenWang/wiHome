@@ -15,6 +15,7 @@
 #include <sys/wait.h>
 #include <sys/socket.h>
 #include <sys/un.h>
+#include <unistd.h>
 
 #include "common.h"
 #include "debug.h"
@@ -22,7 +23,9 @@
 #include "gatewaymain.h"
 #include "gatewayapi.h"
 #include "ipprocessing.h"
+#include "homeconfig.h"
 
+#include "httphandler.h"
 #include "homenet.h"
 #include "homeauth.h"
 #include "../config.h"
@@ -40,12 +43,57 @@ struct timespec mainclock;
  * We need to remember the thread IDs of threads that simulate wait with pthread_cond_timedwait
  * so we can explicitly kill them in the termination handler
  */
-static pthread_t tid_fw_counter = 0;
 static pthread_t tid_ping = 0;
 
 time_t started_time = 0;
 struct timespec mainclock;
+static int whctl_socket_server;
 
+static int
+create_unix_socket(const char *sock_name)
+{
+    struct sockaddr_un sa_un;
+    int sock;
+
+    memset(&sa_un, 0, sizeof(sa_un));
+
+    if (strlen(sock_name) > (sizeof(sa_un.sun_path) - 1)) {
+        /* TODO: Die handler with logging.... */
+        debug(LOG_ERR, "WDCTL socket name too long");
+        return -1;
+    }
+
+    sock = socket(PF_UNIX, SOCK_STREAM, 0);
+
+    if (sock < 0) {
+        debug(LOG_DEBUG, "Could not get unix socket: %s", strerror(errno));
+        return -1;
+    }
+    debug(LOG_DEBUG, "Got unix socket %d", sock);
+
+    /* If it exists, delete... Not the cleanest way to deal. */
+    unlink(sock_name);
+
+    debug(LOG_DEBUG, "Filling sockaddr_un");
+    strcpy(sa_un.sun_path, sock_name);
+    sa_un.sun_family = AF_UNIX;
+
+    debug(LOG_DEBUG, "Binding socket (%s) (%d)", sa_un.sun_path, strlen(sock_name));
+
+    /* Which to use, AF_UNIX, PF_UNIX, AF_LOCAL, PF_LOCAL? */
+    if (bind(sock, (struct sockaddr *)&sa_un, sizeof(struct sockaddr_un))) {
+        debug(LOG_ERR, "Could not bind unix socket: %s", strerror(errno));
+        close(sock);
+        return -1;
+    }
+
+    if (listen(sock, 5)) {
+        debug(LOG_ERR, "Could not listen on control socket: %s", strerror(errno));
+        close(sock);
+        return -1;
+    }
+    return sock;
+}
 
 
 static void printUsage(void)
@@ -103,6 +151,26 @@ void parseCommandline(int argc, char **argv)
 }
 
 
+/**@internal
+ * @brief Handles SIGCHLD signals to avoid zombie processes
+ *
+ * When a child process exits, it causes a SIGCHLD to be sent to the
+ * process. This handler catches it and reaps the child process so it
+ * can exit. Otherwise we'd get zombie processes.
+ */
+
+static void sigchld_handler(int s)
+{
+    int status;
+    pid_t rc;
+
+    debug(LOG_DEBUG, "Handler for SIGCHLD called. Trying to reap a child");
+
+    rc = waitpid(-1, &status, WNOHANG);
+
+    debug(LOG_DEBUG, "Handler for SIGCHLD reaped child PID %d", rc);
+}
+
 /** @internal
  * Registers all the signal handlers
  */
@@ -155,6 +223,48 @@ static void initSignals(void)
     }
 }
 
+
+void stopWhome(void *arg)
+{
+    int *fd;
+    char *sock_name;
+    struct sockaddr_un sa_un;
+    int result;
+    pthread_t tid;
+    socklen_t len;
+
+    debug(LOG_DEBUG, "Starting wifi home control.");
+
+    sock_name = (char *)arg;
+    debug(LOG_DEBUG, "Socket name: %s", sock_name);
+
+    debug(LOG_DEBUG, "Creating socket");
+    whctl_socket_server = create_unix_socket(sock_name);
+    if (-1 == whctl_socket_server) {
+        termination_handler(0);
+    }
+
+    while (1) {
+        len = sizeof(sa_un);
+        memset(&sa_un, 0, len);
+        fd = (int *)safe_malloc(sizeof(int));
+        if ((*fd = accept(whctl_socket_server, (struct sockaddr *)&sa_un, &len)) == -1) {
+            debug(LOG_ERR, "Accept failed on control socket: %s", strerror(errno));
+            free(fd);
+        } else {
+            debug(LOG_DEBUG, "Accepted connection on whome stop control socket %d (%s)", fd, sa_un.sun_path);
+            pid_t pid;
+
+            shutdown(*fd, 2);
+            close(*fd);
+
+            pid = getpid();
+            kill(pid, SIGINT);
+        }
+    }
+}
+
+
 /** Main execution loop */
 static void loopMain(void)
 {
@@ -202,14 +312,6 @@ static void loopMain(void)
       }
   }
 #endif
-
-	/*
-	dhcp_set_cb_request(dhcp, cb_dhcp_request);
-	dhcp_set_cb_connect(dhcp, cb_dhcp_connect);
-	dhcp_set_cb_disconnect(dhcp, cb_dhcp_disconnect);
-	dhcp_set_cb_data_ind(dhcp, cb_dhcp_data_ind);
-
-Initialise connections */
 
 	/* Create an instance of IP handler*/
 	if (initWebserver(webServer, gwOptions->gw_address, gwOptions->gw_port)) {
@@ -261,19 +363,10 @@ Initialise connections */
 */
     /*End, Jerome*/
 
-    /* Start clean up thread */
-    result = pthread_create(&tid_fw_counter, NULL, (void *)thread_client_timeout_check, NULL);
-    if (result != 0) {
-        debug(LOG_ERR, "FATAL: Failed to create a new thread (fw_counter) - exiting");
-        termination_handler(0);
-    }
-    pthread_detach(tid_fw_counter);
-
-
     /* Start control thread */
-    result = pthread_create(&tid, NULL, (void *)thread_wdctl, (void *)safe_strdup(config->wdctl_sock));
+    result = pthread_create(&tid, NULL, (void *)stopWhome, (void *)safe_strdup(gwOptions->whome_sock));
     if (result != 0) {
-        debug(LOG_ERR, "FATAL: Failed to create a new thread (wdctl) - exiting");
+        debug(LOG_ERR, "FATAL: Failed to create a new whome control thread - exiting");
         termination_handler(0);
     }
     pthread_detach(tid);
@@ -297,7 +390,7 @@ Initialise connections */
 			/*
 			 *  Every second, more or less
 			 */
-			if (dhcp) dhcp_timeout(dhcp);
+			if (homeGateway) ip_checkTimeout(homeGateway);
 
 			/*Jerome TBD, J-Module to check periodically if the client has connection with auth server*/
 	        //checkconn();
@@ -360,26 +453,6 @@ int main(int argc, char **argv)
 
 
 
-/**@internal
- * @brief Handles SIGCHLD signals to avoid zombie processes
- *
- * When a child process exits, it causes a SIGCHLD to be sent to the
- * process. This handler catches it and reaps the child process so it
- * can exit. Otherwise we'd get zombie processes.
- */
-
-void sigchld_handler(int s)
-{
-    int status;
-    pid_t rc;
-
-    debug(LOG_DEBUG, "Handler for SIGCHLD called. Trying to reap a child");
-
-    rc = waitpid(-1, &status, WNOHANG);
-
-    debug(LOG_DEBUG, "Handler for SIGCHLD reaped child PID %d", rc);
-}
-
 /** Exits cleanly after cleaning up the firewall.
  *  Use this function anytime you need to exit after firewall initialization.
  *  @param s Integer that is really a boolean, true means voluntary exit, 0 means error.
@@ -387,77 +460,51 @@ void sigchld_handler(int s)
 
 void termination_handler(int s)
 {
-    static pthread_mutex_t sigterm_mutex = PTHREAD_MUTEX_INITIALIZER;
+	struct ipconnections_t *conn, *c;
     pthread_t self = pthread_self();
 
-    debug(LOG_INFO, "Handler for termination caught signal %d", s);
+   debug(LOG_INFO, "Cleaning up and exiting");
 
-    /* Makes sure we only call fw_destroy() once. */
-    if (pthread_mutex_trylock(&sigterm_mutex)) {
-        debug(LOG_INFO, "Another thread already began global termination handler. I'm exiting");
-        pthread_exit(NULL);
-    } else {
-        debug(LOG_INFO, "Cleaning up and exiting");
-    }
-
-
-    /* XXX Hack
-     * Aparently pthread_cond_timedwait under openwrt prevents signals (and therefore
-     * termination handler) from happening so we need to explicitly kill the threads
-     * that use that
-     */
-    if (tid_fw_counter && self != tid_fw_counter) {
-        debug(LOG_INFO, "Explicitly killing the fw_counter thread");
-        pthread_kill(tid_fw_counter, SIGKILL);
-    }
     if (tid_ping && self != tid_ping) {
         debug(LOG_INFO, "Explicitly killing the ping thread");
         pthread_kill(tid_ping, SIGKILL);
     }
 
-	if (dhcp)
-          dhcp_free(dhcp);
+	if (homeGateway)
+	{
+		net_close(&homeGateway->gwTun);
 
-    if (tun)
-      tun_free(tun);
+		  if (homeGateway->hash)
+		    free(homeGateway->hash);
 
-	if (ippool)
-          ippool_free(ippool);
+		  /*Jerome TBD for multiLNA*/
+		  net_close(&homeGateway->rawIf[0]);
+
+		  for (conn = homeGateway->firstfreeconn; conn; ) {
+		    c = conn;
+		    conn = conn->next;
+		    free(c);
+		  }
+
+		  for (conn = homeGateway->firstusedconn; conn; ) {
+		    c = conn;
+		    conn = conn->next;
+		    free(c);
+		  }
+
+		  free(homeGateway->ippool->hash);
+		  free(homeGateway->ippool->member);
+		  free(homeGateway->ippool);
+
+		  free(homeGateway);
+	}
+
+	if(webServer){
+
+	}
 
     debug(LOG_NOTICE, "Exiting...");
     exit(s == 0 ? 1 : 0);
-}
-
-
-
-/** Launches a thread that periodically checks if any of the connections has timed out
-@param arg Must contain a pointer to a string containing the IP adress of the client to check to check
-@todo Also pass MAC adress?
-@todo This thread loops infinitely, need a watchdog to verify that it is still running?
-*/
-void
-thread_client_timeout_check(const void *arg)
-{
-    pthread_cond_t cond = PTHREAD_COND_INITIALIZER;
-    pthread_mutex_t cond_mutex = PTHREAD_MUTEX_INITIALIZER;
-    struct timespec timeout;
-
-    while (1) {
-        /* Sleep for config.checkinterval seconds... */
-        timeout.tv_sec = time(NULL) + config_get_config()->checkinterval;
-        timeout.tv_nsec = 0;
-
-        /* Mutex must be locked for pthread_cond_timedwait... */
-        pthread_mutex_lock(&cond_mutex);
-
-        /* Thread safe "sleep" */
-        pthread_cond_timedwait(&cond, &cond_mutex, &timeout);
-
-        /* No longer needs to be locked */
-        pthread_mutex_unlock(&cond_mutex);
-
-        debug(LOG_DEBUG, "Running fw_counter()");
-    }
 }
 
 

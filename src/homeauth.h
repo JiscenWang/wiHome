@@ -1,5 +1,5 @@
 /*
- * jauth.h
+ * homeauth.h
  *
  *  Created on: Apr 30, 2019
  *      Author: jerome

@@ -1,6 +1,6 @@
 # $Id$
 
-%define name JMtry
+%define name whome
 %define lib_name libhttpd
 %define version @VERSION@
 %define release 1mdk
@@ -47,7 +47,7 @@ rm -rf $RPM_BUILD_ROOT
 %files
 %defattr(-,root,root,0755)
 %doc AUTHORS COPYING ChangeLog INSTALL NEWS README FAQ doc/html
-%config /etc/JM.conf 
+%config /etc/WirelessHome.conf 
 %{_bindir}/*
 %{_libdir}/*.a
 %{_libdir}/*.la
@@ -58,5 +58,5 @@ rm -rf $RPM_BUILD_ROOT
 * Sun Aug 29 2004 Guillaume Beaudoin <isf@soli.ca>
 - Littles fixes and libofx leftover.
 - Prefix changed to /usr to match init.d script (define removed).
-* Sat Mar 8 2004 Benoit Grégoire <bock@step.polymtl.ca>
+* Sat Mar 8 2004 Benoit Grï¿½goire <bock@step.polymtl.ca>
 - Created spec file
