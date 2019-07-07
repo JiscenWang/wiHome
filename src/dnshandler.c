@@ -143,7 +143,7 @@ int sendDnsNak(struct ipconnections_t *conn, uint8_t *pack, size_t len) {
   /* checksums */
   chksum(answer_iph);
 
-  gw_sendDlData(this, 0, conn->hismac, answer, len);
+  gw_sendDlData(this, conn->rawIdx, conn->hismac, answer, len);
   return 0;
 }
 
@@ -324,7 +324,7 @@ int dnsHandler(struct ipconnections_t *conn, uint8_t *pack, size_t *plen) {
           /* Calculate total length */
           length = udp_len + sizeofip(answer);
 
-          gw_sendDlData(conn->parent, 0, conn->hismac, answer, length);
+          gw_sendDlData(conn->parent, conn->rawIdx, conn->hismac, answer, length);
           return 0;
         }
       }

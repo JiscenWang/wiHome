@@ -24,6 +24,8 @@
 #include "gatewayapi.h"
 #include "ipprocessing.h"
 #include "homeconfig.h"
+#include "httpd.h"
+#include "functions.h"
 
 #include "httphandler.h"
 #include "homenet.h"
@@ -44,6 +46,7 @@ struct timespec mainclock;
  * so we can explicitly kill them in the termination handler
  */
 static pthread_t tid_ping = 0;
+static pthread_t tid_stop = 0;
 
 time_t started_time = 0;
 struct timespec mainclock;
@@ -269,7 +272,7 @@ void stopWhome(void *arg)
 static void loopMain(void)
 {
     int result;
-    pthread_t tid;
+
 	select_ctx sctx;
 	memset(&sctx, 0, sizeof(sctx));
 
@@ -304,22 +307,13 @@ static void loopMain(void)
 
 //    if(dhcp->relayfd > 0) register_fd_cleanup_on_fork(dhcp->relayfd);
 
-#ifdef ENABLE_MULTILAN
-  {
-    int idx, i;
-    for (idx=1; idx < MAX_MOREIF && dhcp->rawif[idx].fd; idx++) {
-        register_fd_cleanup_on_fork(dhcp->rawif[idx].fd);
-      }
-  }
-#endif
-
 	/* Create an instance of IP handler*/
-	if (initWebserver(webServer, gwOptions->gw_address, gwOptions->gw_port)) {
+	if (initWebserver(&webServer, gwOptions->gw_address, gwOptions->gw_port)) {
        debug(LOG_ERR, "Could not create web server: %s", strerror(errno));
        exit(1);
 	}
 
-
+    debug(LOG_DEBUG, "Reg select tun device %s with fd %d", homeGateway->gwTun.devname, homeGateway->gwTun.fd);
     net_select_reg(&sctx,
                    homeGateway->gwTun.fd,
                    SELECT_READ, (select_callback)gw_tun_rcvPackets,
@@ -331,7 +325,12 @@ static void loopMain(void)
                            (select_callback)dhcp_relay_decaps, dhcp, 0);
     }*/
 
-	for (int i=0; i < MAX_RAWIF && homeGateway->rawIf[i].fd > 0; i++) {
+	for (int i=0; i < MAX_RAWIF; i++) {
+		if(&homeGateway->rawIf[i] == NULL){
+			debug(LOG_ERR, "Multi LAN raw if No. %d error %s", i, strerror(errno));
+			exit(0);
+		}
+        debug(LOG_DEBUG, "Reg select rawIf %s with fd %d with idx = %d", homeGateway->rawIf[i].devname, homeGateway->rawIf[i].fd, i);
           net_select_reg(&sctx, homeGateway->rawIf[i].fd, SELECT_READ,
                          (select_callback)gw_raw_rcvPackets, homeGateway, i);
           homeGateway->rawIf[i].sctx = &sctx;
@@ -340,11 +339,11 @@ static void loopMain(void)
 
 //    register_fd_cleanup_on_fork(webserver->serverSock);
 
+    debug(LOG_DEBUG, "Reg select websvr %s with fd %d", webServer->host, webServer->serverSock);
     /*Jerome: Add J-module*/
     net_select_reg(&sctx, webServer->serverSock,
                    SELECT_READ, (select_callback)rcvHttpConnection,
 				   webServer, 0);
-
 
 	/* Initializes the auth server */
 /*
@@ -364,12 +363,12 @@ static void loopMain(void)
     /*End, Jerome*/
 
     /* Start control thread */
-    result = pthread_create(&tid, NULL, (void *)stopWhome, (void *)safe_strdup(gwOptions->whome_sock));
+    result = pthread_create(&tid_stop, NULL, (void *)stopWhome, (void *)safe_strdup(gwOptions->whome_sock));
     if (result != 0) {
         debug(LOG_ERR, "FATAL: Failed to create a new whome control thread - exiting");
         termination_handler(0);
     }
-    pthread_detach(tid);
+    pthread_detach(tid_stop);
 
     /* Start heartbeat thread */
     /*Jerome, withdraw
@@ -465,42 +464,57 @@ void termination_handler(int s)
 
    debug(LOG_INFO, "Cleaning up and exiting");
 
-    if (tid_ping && self != tid_ping) {
-        debug(LOG_INFO, "Explicitly killing the ping thread");
-        pthread_kill(tid_ping, SIGKILL);
-    }
+   if (tid_stop) {
+       debug(LOG_INFO, "Explicitly killing the wihome control thread");
+       pthread_kill(tid_stop, SIGKILL);
+   }
+
+   if (tid_ping) {
+       debug(LOG_INFO, "Explicitly killing the ping thread");
+       pthread_kill(tid_ping, SIGKILL);
+   }
 
 	if (homeGateway)
 	{
 		net_close(&homeGateway->gwTun);
+		debug(LOG_INFO, "Closing gateway tun devive %s", homeGateway->gwTun.devname);
 
-		  if (homeGateway->hash)
-		    free(homeGateway->hash);
+		for (int i=0; i < MAX_RAWIF > 0; i++) {
 
-		  /*Jerome TBD for multiLNA*/
-		  net_close(&homeGateway->rawIf[0]);
+		      if(&homeGateway->rawIf[i] == NULL){
+					debug(LOG_ERR, "Multi LAN raw if No. %d error %s", i, strerror(errno));
+					exit(0);
+		      }
+		      dev_set_flags(homeGateway->rawIf[i].devname,
+		    		  homeGateway->rawIf[i].devflags);
+		      net_close(&homeGateway->rawIf[i]);
+		      debug(LOG_INFO, "Closing rawIf %s with idx = %d", homeGateway->rawIf[i].devname, i);
+		}
 
-		  for (conn = homeGateway->firstfreeconn; conn; ) {
+		if (homeGateway->hash) free(homeGateway->hash);
+		for (conn = homeGateway->firstfreeconn; conn; ) {
 		    c = conn;
 		    conn = conn->next;
 		    free(c);
-		  }
-
-		  for (conn = homeGateway->firstusedconn; conn; ) {
+		}
+		for (conn = homeGateway->firstusedconn; conn; ) {
 		    c = conn;
 		    conn = conn->next;
 		    free(c);
-		  }
+		}
+	    debug(LOG_INFO, "Free memory allocated for home gateway connections");
 
-		  free(homeGateway->ippool->hash);
-		  free(homeGateway->ippool->member);
-		  free(homeGateway->ippool);
+	    free(homeGateway->ippool->hash);
+	    free(homeGateway->ippool->member);
+	    free(homeGateway->ippool);
+	    debug(LOG_INFO, "Free memory allocated for DHCP IP pool");
 
-		  free(homeGateway);
+	    free(homeGateway);
+	    debug(LOG_INFO, "Free memory allocated for home gateway itself");
 	}
 
 	if(webServer){
-
+		endWebserver();
 	}
 
     debug(LOG_NOTICE, "Exiting...");

@@ -244,27 +244,39 @@ int rcvHttpConnection(httpd *server, int index){
 }
 
 /* Initializes the web server */
-int initWebserver(httpd *server, char *address, int port){
+int initWebserver(httpd **ppserver, char *address, int port){
+	httpd *pserver;
 
-    if ((server = httpdCreate(address, port)) == NULL) {
+    if ((pserver = httpdCreate(address, port)) == NULL) {
         return -1;
    }
 
-    debug(LOG_NOTICE, "Created web server on %s:%d with socket %d", address, port, server->serverSock);
+    debug(LOG_NOTICE, "Created web server on %s:%d with socket %d", address, port, pserver->serverSock);
 
     FILE *logfp = fopen("/tmp/access.log", "a" );
-    httpdSetAccessLog ( server, logfp );
+    httpdSetAccessLog ( pserver, logfp );
 
     /*Jerome TBD define new Html*/
     debug(LOG_DEBUG, "Assigning callbacks to web server");
-    httpdAddCContent(server, "/", "jmodule", 0, NULL, http_callback_jmodule);
-    httpdAddCContent(server, "/jmodule", "", 0, NULL, http_callback_jmodule);
-    httpdAddCContent(server, "/jmodule", "about", 0, NULL, http_callback_about);
+    httpdAddCContent(pserver, "/", "jmodule", 0, NULL, http_callback_jmodule);
+    httpdAddCContent(pserver, "/jmodule", "", 0, NULL, http_callback_jmodule);
+    httpdAddCContent(pserver, "/jmodule", "about", 0, NULL, http_callback_about);
 
-    httpdSetFileBase(server,"/home/jerome/files");
-    httpdAddFileContent(server, "/jmodule", "download", 0, NULL,"tryit.mp3");
+    httpdSetFileBase(pserver,"/home/jerome/files");
+    httpdAddFileContent(pserver, "/jmodule", "download", 0, NULL,"tryit.mp3");
 
-    httpdSetErrorFunction(server, 404, http_callback_404);
+    httpdSetErrorFunction(pserver, 404, http_callback_404);
 
+    *ppserver = pserver;
     return 0;
+}
+
+/* closing the web server */
+int endWebserver(httpd *pserver){
+
+	if(pserver->serverSock > 0){
+		close(pserver->serverSock);
+		pserver->serverSock = 0;
+	}
+	httpdDestroy(pserver);
 }

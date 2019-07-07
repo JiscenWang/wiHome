@@ -159,14 +159,7 @@ struct ipconnections_t {
   struct in_addr migrateip;    /* Client IP address to migrate to */
   /*time_t last_nak;*/
 
-#ifdef ENABLE_MULTILAN
-#define dhcp_conn_idx(x)       ((x)->lanidx)
-#define dhcp_conn_set_idx(x,c) ((x)->lanidx = (c)->idx)
-  int lanidx;
-#else
-#define dhcp_conn_idx(x) 0
-#define dhcp_conn_set_idx(x,c)
-#endif
+  int rawIdx; 	 /* Index of LAN raw interfaces */
 } ;
 
 struct rawif_in{

@@ -41,18 +41,16 @@ struct gateway_t {
 	/* Pool of IP addresses */
 	struct ippool_t *ippool;
 
-	/* Connection management */
-	struct ipconnections_t *firstfreeconn; /* First free in linked list */
-	struct ipconnections_t *lastfreeconn;  /* Last free in linked list */
-	struct ipconnections_t *firstusedconn; /* First used in linked list */
-	struct ipconnections_t *lastusedconn;  /* Last used in linked list */
-
 	/* Hash related parameters */
 	int hashsize;                 /* Size of hash table */
 	int hashlog;                  /* Log2 size of hash table */
 	int hashmask;                 /* Bitmask for calculating hash */
 	struct ipconnections_t **hash;    /* Hashsize array of pointer to member */
-
+	/* Connection management */
+	struct ipconnections_t *firstfreeconn; /* First free in linked list */
+	struct ipconnections_t *lastfreeconn;  /* Last free in linked list */
+	struct ipconnections_t *firstusedconn; /* First used in linked list */
+	struct ipconnections_t *lastusedconn;  /* Last used in linked list */
 };
 
 void termination_handler(int s);

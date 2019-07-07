@@ -301,7 +301,7 @@ static int sendDhcpNak(struct ipconnections_t *conn, uint8_t *pack, size_t len) 
   uint16_t length = udp_len + sizeofip(packet);
 
   conn->dhcpstate = 0;
-  return gw_sendDlData(this, 0, conn->hismac, packet, length);
+  return gw_sendDlData(this, conn->rawIdx, conn->hismac, packet, length);
 }
 
 
@@ -339,7 +339,7 @@ static int sendDhcpAck(struct ipconnections_t *conn, uint8_t *pack, size_t len) 
   uint16_t length = udp_len + sizeofip(packet);
 
   conn->dhcpstate = 1;
-  return gw_sendDlData(this, dhcp_conn_idx(conn), conn->hismac, packet, length);
+  return gw_sendDlData(this, conn->rawIdx, conn->hismac, packet, length);
 }
 
 /**
@@ -376,7 +376,7 @@ static int sendDhcpOffer(struct ipconnections_t *conn, uint8_t *pack, size_t len
   uint16_t length = udp_len + sizeofip(packet);
 
   conn->dhcpstate = 1;
-  return gw_sendDlData(this, 0, conn->hismac, packet, length);
+  return gw_sendDlData(this, conn->rawIdx, conn->hismac, packet, length);
 }
 
 /**

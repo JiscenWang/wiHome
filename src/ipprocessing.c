@@ -160,7 +160,7 @@ int ip_delHash(struct gateway_t *this, struct ipconnections_t *conn) {
 }
 
 /**dhcp_hashadd()
- * Adds a connection to the hash table
+ * Adds a connection to the hash table by MAC address
  **/
 int ip_addHash(struct gateway_t *this, struct ipconnections_t *conn) {
   uint32_t hash;
@@ -333,14 +333,14 @@ int ippool_newip(struct ippool_t *this,
     	  break;
       }
     }
+    /* If IP was already allocated we can not use it */
+    if ((p2) && (p2->in_use)) {
+      p2 = NULL;
+      return -1;
+    }
   }
 
-  /* If IP was already allocated we can not use it */
-  if ((p2) && (p2->in_use)) {
-    p2 = NULL;
-  }
-
-  /* If not found yet then allocate dynamic IP */
+  /* If not found yet then allocate an IP position*/
   if (!p2) {
     if (!this->firstdyn) {
       debug(LOG_ERR, "No more dynamic addresses available");
@@ -352,11 +352,6 @@ int ippool_newip(struct ippool_t *this,
   }
 
   if (p2) { /* Was allocated from dynamic address pool */
-
-    if (p2->in_use) {
-      debug(LOG_ERR, "IP address already in use");
-      return -1; /* Already in use / Should not happen */
-    }
 
     /* Remove from linked list of free dynamic addresses */
     if (p2->prev)
@@ -910,7 +905,7 @@ static int tunDataProcess(struct ipconnections_t *conn,
   if (do_checksum)
       chksum(pkt_iphdr(packet));
 
-  return gw_sendDlData(pgateway, 0, conn->hismac, packet, length);
+  return gw_sendDlData(pgateway, conn->rawIdx, conn->hismac, packet, length);
 }
 
 /**
@@ -1016,7 +1011,7 @@ int tun_rcvIp(struct gateway_t *pgateway, struct pkt_buffer *pb) {
     return 0;
   }
 
-  tunDataProcess(connection->dnlink, pb, ethhdr);
+  tunDataProcess(connection, pb, ethhdr);
   return 0;
 }
 
@@ -1027,6 +1022,8 @@ int tun_rcvIp(struct gateway_t *pgateway, struct pkt_buffer *pb) {
  */
 int raw_rcvIp(struct rawif_in *ctx, uint8_t *pack, size_t len) {
   struct gateway_t *this = ctx->parent;
+	int rawifindex = ctx->idx;
+
   struct pkt_ethhdr_t *pack_ethh = pkt_ethhdr(pack);
   struct pkt_iphdr_t  *pack_iph  = pkt_iphdr(pack);
   struct pkt_tcphdr_t *pack_tcph = 0;
@@ -1064,12 +1061,11 @@ int raw_rcvIp(struct rawif_in *ctx, uint8_t *pack, size_t len) {
   /*
    *  Check that the destination MAC address is our MAC or Broadcast
    */
-  if ((memcmp(pack_ethh->dst, this->rawIf[0].hwaddr, PKT_ETH_ALEN)) &&
+  if ((memcmp(pack_ethh->dst, this->rawIf[rawifindex].hwaddr, PKT_ETH_ALEN)) &&
       (memcmp(pack_ethh->dst, broadcastmac, PKT_ETH_ALEN))) {
 
 	  debug(LOG_DEBUG, "Not for our MAC or broadcast: "MAC_FMT"",
                MAC_ARG(pack_ethh->dst));
-
       return 0;
   }
 
@@ -1088,7 +1084,7 @@ int raw_rcvIp(struct rawif_in *ctx, uint8_t *pack, size_t len) {
       uint8_t icmp_pack[1500];
 
       debug(LOG_ERR, "Sending fragmentation ICMP");
-      gw_sendDlData(this, ctx->idx, pack_ethh->src, icmp_pack,
+      gw_sendDlData(this, rawifindex, pack_ethh->src, icmp_pack,
 		icmpfrag(this, icmp_pack, sizeof(icmp_pack), pack));
     }
 
@@ -1110,8 +1106,8 @@ int raw_rcvIp(struct rawif_in *ctx, uint8_t *pack, size_t len) {
   if (iph_tot_len > this->mtu && (pack_iph->opt_off_high & 64)) {
     uint8_t icmp_pack[1500];
     debug(LOG_ERR, "ICMP frag forbidden for IP packet with length %d > %d",
-             iph_tot_len, conn->mtu);
-    gw_sendDlData(this, ctx->idx, pack_ethh->src, icmp_pack,
+             iph_tot_len, this->mtu);
+    gw_sendDlData(this, rawifindex, pack_ethh->src, icmp_pack,
 	      icmpfrag(this, icmp_pack, sizeof(icmp_pack), pack));
     return 0;
   }
@@ -1153,81 +1149,89 @@ int raw_rcvIp(struct rawif_in *ctx, uint8_t *pack, size_t len) {
    *  Check to see if we know MAC address
    */
   if (!ip_getHash(this, &conn, pack_ethh->src)) {
-
-    debug(LOG_DEBUG, "IP: MAC Address "MAC_FMT" found", MAC_ARG(pack_ethh->src));
-
+    debug(LOG_DEBUG, "IP handler: MAC Address "MAC_FMT" found", MAC_ARG(pack_ethh->src));
   } else {
-	  /*New Connection will be recorded during BOOTPS unless it is static IP*/
-	  /* DHCP (BOOTPS) packets */
-	  is_dhcp = (((pack_iph->daddr == 0) ||
-		      (pack_iph->daddr == 0xffffffff) ||
-		      (pack_iph->daddr == this->ourip.s_addr)) &&
-		     (pack_udph && (pack_udph->dst == htons(DHCP_BOOTPS))));
+	  /*First connection with home gateway, with(statically set) or without(dynamically) IP address*/
+	  struct in_addr reqaddr;
+	  memcpy(&reqaddr.s_addr, &pack_iph->saddr, PKT_IP_ALEN);
 
-	  if (is_dhcp) {
-	    debug(LOG_DEBUG, "IP: new dhcp/bootps request being processed for "MAC_FMT"",
-	               MAC_ARG(pack_ethh->src));
-	    	dhcpHandler(ctx, pack, len);
-	    return 0;
+	  /* Allocate new connection without recording IP address*/
+	  if (ip_newConnection(this, &conn, pack_ethh->src)) {
+		  debug(LOG_DEBUG, "dropping packet; out of connections");
+		  return 0; /* Out of connections */
 	  }
-	  /*Ended for DHCP (BOOTPS) packets */
+	  conn->rawIdx = rawifindex;
 
-	/*Packet in with IP not allocated by gateway*/
-    struct in_addr reqaddr;
-    memcpy(&reqaddr.s_addr, &pack_iph->saddr, PKT_IP_ALEN);
+	  if(reqaddr.s_addr != 0){
+		  debug(LOG_DEBUG, "IP: MAC address "MAC_FMT" not found with statically set IP (%s), add new connection",
+	    		MAC_ARG(pack_ethh->src),
+				inet_ntoa(reqaddr));
+	  }else{
+		  debug(LOG_DEBUG, "IP: MAC address "MAC_FMT" not found without IP, add new connection",
+	    		MAC_ARG(pack_ethh->src));
+	  }
 
-    debug(LOG_DEBUG, "IP: MAC address "MAC_FMT" not found with IP (%s), add new connection",
-    		MAC_ARG(pack_ethh->src),
-			inet_ntoa(reqaddr));
-
-    /* Allocate new connection */
-    if (ip_newConnection(this, &conn, pack_ethh->src)) {
-      debug(LOG_DEBUG, "dropping packet; out of connections");
-      return 0; /* Out of connections */
-    }
-    conn->hisip.s_addr = reqaddr.s_addr;
+	  /*Recording IP of new connection which could be NULL*/
+	  conn->hisip.s_addr = reqaddr.s_addr;
   }
 
-  /* Jerome TBD? Return if we do not know peer */
   if (!conn) {
-    debug(LOG_ERR, "dropping packet; no peer");
+    debug(LOG_ERR, "Dropping packet without record in home gateway");
     return 0;
-  }else if(conn->hisip.s_addr == 0){
-    debug(LOG_DEBUG, "no hisip; packet-drop");
+  }
+
+  /*New Connection will be recorded during BOOTPS unless it is statically set IP*/
+  /* DHCP (BOOTPS) packets */
+  is_dhcp = (((pack_iph->daddr == 0) ||
+	      (pack_iph->daddr == 0xffffffff) ||
+	      (pack_iph->daddr == this->ourip.s_addr)) &&
+	     (pack_udph && (pack_udph->dst == htons(DHCP_BOOTPS))));
+
+  if (is_dhcp) {
+    debug(LOG_DEBUG, "IP handler: new dhcp/bootps request being processed for "MAC_FMT"",
+               MAC_ARG(pack_ethh->src));
+    	dhcpHandler(ctx, pack, len);
+    return 0;
+  }
+  /*Ended for DHCP (BOOTPS) packets */
+
+  /*After DHCP IP allocation or static set IP, the connection must have an IP address now*/
+  if(conn->hisip.s_addr == 0){
+    debug(LOG_DEBUG, "Connection without his IP address, dropping packet");
     return -1;
   }
-
-  struct in_addr addr;
-  addr.s_addr = pack_iph->saddr;
-
-  /*Jerome: 判断是否本DHCP分配过地址，没有的话接受client使用的IP*/
-  if ((conn->dhcpstate == 0) && (((pack_iph->daddr != 0) &&
-           (pack_iph->daddr != 0xffffffff)))) {
-	  /*client IP是否本网段，不是DHCP能分配的地址*/
-	  if((pack_iph->saddr & gwOptions->netmask.s_addr)
-			  != (gwOptions->tundevip.s_addr& gwOptions->netmask.s_addr)){
-
-		  debug(LOG_DEBUG, "Dropping packet; Client has static IP %s not in our net", inet_ntoa(addr));
-		  return 0; // Ignore request if IP address was not allocated
-	  }else{
-
-		  if (ip_allocClientIP(conn, &addr, 0, 0)) {
-
-			 debug(LOG_DEBUG, "Dropping packet; Client's ip %s cannot be allocated", inet_ntoa(addr));
-			 return 0; // Ignore request if IP address was not allocated
-		  }
-      }
-  }
-  /*End. Jerome*/
 
   /*Jerome Changes procedure. Ignore request if IP address was not allocated by this DHCP*/
   struct ippoolm_t *ipm = 0;
   if(conn->uplink){
 	  /* IP Address is already known and allocated */
 	  ipm = (struct ippoolm_t*) conn->uplink;
+  }else{
+	  /*Jerome: 判断是否本DHCP分配过地址，没有的话接受client使用的IP*/
+	  if ((conn->dhcpstate == 0) && (((pack_iph->daddr != 0) &&
+	           (pack_iph->daddr != 0xffffffff)))) {
+		  struct in_addr addr;
+		  addr.s_addr = pack_iph->saddr;
+
+		  /*client IP是否本网段，不是DHCP能分配的地址,丢掉*/
+		  if((pack_iph->saddr & gwOptions->netmask.s_addr)
+				  != (gwOptions->tundevip.s_addr& gwOptions->netmask.s_addr)){
+
+			  debug(LOG_DEBUG, "Dropping packet; Client has static IP %s not in our net", inet_ntoa(addr));
+			  return 0;
+		  }else{
+			  /*本网段client IP记录到IP pool分配表*/
+			  if (ip_allocClientIP(conn, &addr, 0, 0)) {
+				 debug(LOG_DEBUG, "Dropping packet; Client's ip %s cannot be allocated", inet_ntoa(addr));
+				 return 0;
+			  }
+	      }
+	  }
+	  /*End. Jerome*/
   }
 
   if(!ipm){
+	  /*Jerome: should not reach here*/
 	  debug(LOG_ERR, "IP: failed to allocated IP!");
 	    return -1;
   }
@@ -1237,9 +1241,6 @@ int raw_rcvIp(struct rawif_in *ctx, uint8_t *pack, size_t len) {
 	debug(LOG_ERR, "Received packet with spoofed source!");
     return 0;
   }
-
-  conn->lasttime = mainclock_tick();
-  authstate = conn->authstate;
 
   if (pack_iph->protocol == PKT_IP_PROTO_UDP) {
       if ((pack_iph->daddr & gwOptions->netmask.s_addr) ==
@@ -1261,6 +1262,9 @@ int raw_rcvIp(struct rawif_in *ctx, uint8_t *pack, size_t len) {
 	  allowed = 1; /* Is allowed DNS */
   }
   /* End of DNS handling part*/
+
+  conn->lasttime = mainclock_tick();
+  authstate = conn->authstate;
 
   debug(LOG_DEBUG, "DHCP received packet with authentic state %d", authstate);
   switch (authstate) {
@@ -1304,42 +1308,43 @@ int raw_rcvIp(struct rawif_in *ctx, uint8_t *pack, size_t len) {
 
 
 /**dhcp_newconn()
- * Allocates a new connection from the pool.
+ * Allocates a new connection to the gateway records.
  **/
 int ip_newConnection(struct gateway_t *this, struct ipconnections_t **conn,
 		 uint8_t *hwaddr)
 {
 
 	s_gwOptions *gwOptions = get_gwOptions();
-  debug(LOG_DEBUG, "IP newconn: "MAC_FMT"", MAC_ARG(hwaddr));
+	debug(LOG_DEBUG, "IP newconn: "MAC_FMT"", MAC_ARG(hwaddr));
 
-  if (addConnection(this, conn) != 0)
-    return -1;
+	if (addConnection(this, conn) != 0)
+		return -1;
 
-  (*conn)->inuse = 1;
-  (*conn)->parent = this;
-  (*conn)->mtu = this->mtu;
+	(*conn)->inuse = 1;
+	(*conn)->parent = this;
+	(*conn)->mtu = this->mtu;
 
-  /* Application specific initialisations */
-  memcpy((*conn)->hismac, hwaddr, PKT_ETH_ALEN);
+	/* First connection record with MAC address only */
+	memcpy((*conn)->hismac, hwaddr, PKT_ETH_ALEN);
 
-  (*conn)->lasttime = mainclock_tick();
-  (*conn)->dhcpstate = 0;
+	(*conn)->lasttime = mainclock_tick();
+	(*conn)->dhcpstate = 0;
 
-  ip_addHash(this, *conn);
+	/*Insert to hash table of connections by MAC address*/
+	ip_addHash(this, *conn);
 
-  /*Jerome TBD for MAC allowed list*/
-  if ((gwOptions->macoklen) && !maccmp((*conn)->hismac, gwOptions)) {
-	  (*conn)->authstate = AUTH_CLIENT;
-	  debug(LOG_DEBUG, "cb_dhcp_connect. MAC "MAC_FMT" is allowed.\n", MAC_ARG((*conn)->hismac));
-  }else{
-	  (*conn)->authstate = NEW_CLIENT;
-  }
+	/*Jerome TBD for MAC allowed list*/
+	if ((gwOptions->macoklen) && !maccmp((*conn)->hismac, gwOptions)) {
+		(*conn)->authstate = AUTH_CLIENT;
+		debug(LOG_DEBUG, "cb_dhcp_connect. MAC "MAC_FMT" is allowed.\n", MAC_ARG((*conn)->hismac));
+	}else{
+		(*conn)->authstate = NEW_CLIENT;
+	}
 
-  (*conn)->dns1 = gwOptions->dns1;
-  (*conn)->dns2 = gwOptions->dns2;
+	(*conn)->dns1 = gwOptions->dns1;
+	(*conn)->dns2 = gwOptions->dns2;
 
-  return 0; /* Success */
+	return 0; /* Success */
 }
 
 
@@ -1378,24 +1383,19 @@ int ip_allocClientIP(struct ipconnections_t *conn, struct in_addr *addr,
 	        return -1;
 	    }
 
-	    conn->hisip.s_addr = ipm->addr.s_addr;
-	    conn->hismask.s_addr = gwOptions->netmask.s_addr;
-
 	    debug(LOG_DEBUG, "Successfully allocate client MAC="MAC_FMT" assigned IP %s" ,
 	             MAC_ARG(conn->hismac), inet_ntoa(conn->hisip));
 
-	    if (!conn->ourip.s_addr)
-	    	conn->ourip.s_addr = gwOptions->tundevip.s_addr;
-
 	    conn->uplink = ipm;
-	    ipm->peer = conn;
-
   }
 
    if (ipm) {
 	  conn->hisip.s_addr = ipm->addr.s_addr;
 	  conn->hismask.s_addr = gwOptions->netmask.s_addr;
 	  conn->ourip.s_addr = gwOptions->tundevip.s_addr;
+	  ipm->peer = conn;
+   }else{
+	   return -1;
    }
 
   if (conn->authstate != AUTH_CLIENT)

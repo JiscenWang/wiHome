@@ -11,6 +11,7 @@
 #include "httpd.h"
 
 int rcvHttpConnection(httpd *server, int index);
-int initWebserver(httpd *server, char *address, int port);
+int initWebserver(httpd **ppserver, char *address, int port);
+int endWebserver(httpd *pserver);
 
 #endif /* SRC_HTTPHANDLER_H_ */

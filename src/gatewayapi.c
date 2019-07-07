@@ -87,7 +87,7 @@ static int openTun(struct _net_interface *netif) {
 
 
 /**
-Setup raw sockets from internal interfaces for home gateway
+Setup all raw sockets from internal interfaces for home gateway
  **/
 static int openRawsocket(struct gateway_t *pgateway, char *interface) {
 	s_gwOptions *gwOptions = get_gwOptions();
@@ -190,10 +190,10 @@ static int cb_raw_rcvPackets(void *pctx, struct pkt_buffer *pb) {
   prot = ntohs(ethh->prot);
 
   debug(LOG_DEBUG, "Gateway from raw: src="MAC_FMT" "
-           "dst="MAC_FMT" prot=%.4x %d len=%zd",
+           "dst="MAC_FMT" prot=%.4x %d len=%zd from raw IF /%d",
            MAC_ARG(ethh->src),
            MAC_ARG(ethh->dst),
-           prot, (int)prot, length);
+           prot, (int)prot, length, ctx->idx);
 
   if (prot < 1518) {
 	debug(LOG_ERR, "Gateway from raw: unhandled prot %d", prot);
@@ -248,11 +248,7 @@ int gw_raw_rcvPackets(struct gateway_t *this, int idx) {
   net_interface *iface = 0;
   struct rawif_in if_In;
 
-#ifdef ENABLE_MULTILAN
   iface = &this->rawIf[idx];
-#else
-  iface = &this->rawIf[0];
-#endif
 
   if_In.parent = this;
   if_In.idx = idx;
@@ -262,7 +258,6 @@ int gw_raw_rcvPackets(struct gateway_t *this, int idx) {
 	  debug(LOG_ERR, "Gateway receives unhandled packet of length %d from raw interface %d", length, idx);
 	  return -1;
   }
-
   return length;
 }
 
@@ -279,6 +274,7 @@ int initGateway(struct gateway_t **ppgateway) {
   net_set_address(&home_gateway->gwTun, &gwOptions->tundevip, &gwOptions->tundevip, &gwOptions->netmask);
   debug(LOG_DEBUG, "Set gateway IP address %s", inet_ntoa(gwOptions->tundevip));
 
+  /*Open all raw sockets of all interfaces if multi LAN*/
   if(openRawsocket(home_gateway, gwOptions->internalif[0]))
 	  return -1;
 
@@ -297,24 +293,19 @@ int initGateway(struct gateway_t **ppgateway) {
 /*dhcp_send()*/
 int gw_sendDlData(struct gateway_t *this, int idx,
               unsigned char *hismac, uint8_t *packet, size_t length) {
-  net_interface *iface = 0;
-
 //    pkt_shape_tcpwin(pkt_iphdr(packet), _options.tcpwin);
 //    pkt_shape_tcpmss(packet, &length);
 
-#ifdef ENABLE_MULTILAN
   if (idx < 0) {
     int i, ret = -1;
     for (i=0; i < MAX_RAWIF && this->rawIf[i].fd; i++)
       ret = callNetSend(&this->rawIf[i], hismac, packet, length);
     return ret;
+  }else{
+	  ret = callNetSend(&this->rawIf[idx], hismac, packet, length);
+	  return ret;
   }
-  iface = &this->rawIf[idx];
-#else
-  iface = &this->rawIf[0];
-#endif
 
-  return callNetSend(iface, hismac, packet, length);
 }
 
 

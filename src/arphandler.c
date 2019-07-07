@@ -23,7 +23,7 @@
  * Send ARP message to peer
  **/
 static
-int sendARP(struct gateway_t *this, uint8_t *pack, size_t len) {
+int sendARP(struct gateway_t *this, int idx, uint8_t *pack, size_t len) {
   uint8_t packet[1500];
 
   struct in_addr reqaddr;
@@ -54,7 +54,7 @@ int sendARP(struct gateway_t *this, uint8_t *pack, size_t len) {
 
   /* Source address */
   memcpy(packet_arp->spa, &this->ourip.s_addr, PKT_IP_ALEN);
-  memcpy(packet_arp->sha, this->rawIf[0].hwaddr, PKT_ETH_ALEN);
+  memcpy(packet_arp->sha, this->rawIf[idx].hwaddr, PKT_ETH_ALEN);
 
   /* Target address */
   memcpy(packet_arp->tha, pack_arp->sha, PKT_ETH_ALEN);
@@ -66,9 +66,9 @@ int sendARP(struct gateway_t *this, uint8_t *pack, size_t len) {
 
   /* Ethernet header */
   memcpy(packet_ethh->dst, pack_arp->sha, PKT_ETH_ALEN);
-  memcpy(packet_ethh->src, this->rawIf[0].hwaddr, PKT_ETH_ALEN);
+  memcpy(packet_ethh->src, this->rawIf[idx].hwaddr, PKT_ETH_ALEN);
 
-  return gw_sendDlData(this, 0, pack_arp->sha,
+  return gw_sendDlData(this, idx, pack_arp->sha,
 		   packet, sizeofarp(packet));
 }
 
@@ -85,6 +85,7 @@ int raw_rcvArp(struct rawif_in *ctx, uint8_t *pack, size_t len) {
 
 	s_gwOptions *gwOptions = get_gwOptions();
 	struct gateway_t *this = ctx->parent;
+	int rawifindex = ctx->idx;
   struct ipconnections_t *conn = NULL;
 
   /* get sender IP address */
@@ -119,7 +120,7 @@ int raw_rcvArp(struct rawif_in *ctx, uint8_t *pack, size_t len) {
 
   /* Check that MAC address is our MAC or Broadcast */
   /*Jerome TBD for mulit LAN ARP*/
-  if ((memcmp(pack_ethh->dst, this->rawIf[0].hwaddr, PKT_ETH_ALEN)) &&
+  if ((memcmp(pack_ethh->dst, this->rawIf[rawifindex].hwaddr, PKT_ETH_ALEN)) &&
       (memcmp(pack_ethh->dst, broadcastmac, PKT_ETH_ALEN))) {
     debug(LOG_DEBUG, "ARP: Received ARP request for other destination!");
     return 0;
@@ -127,8 +128,8 @@ int raw_rcvArp(struct rawif_in *ctx, uint8_t *pack, size_t len) {
 
   /* Check to see if we know MAC address. */
   if (ip_getHash(this, &conn, pack_arp->sha)) {
+	/* Response ARP even if does not know its MAC. */
     debug(LOG_DEBUG, "ARP: Address not found with IP: %s", inet_ntoa(reqaddr));
-
   }else{
 	  if (!conn->hisip.s_addr) {
 	    debug(LOG_DEBUG, "ARP: request did not come from known client asking for target: %s",
@@ -203,7 +204,7 @@ End, Jerome*/
      return 0;
   }
 
-  sendARP(this, pack, len);
+  sendARP(this, rawifindex, pack, len);
   return 0;
 }
 

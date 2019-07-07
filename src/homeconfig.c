@@ -14,6 +14,7 @@
 #include "common.h"
 #include "debug.h"
 #include "homeconfig.h"
+#include "functions.h"
 
 #include "../config.h"
 
