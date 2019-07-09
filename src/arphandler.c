@@ -127,9 +127,10 @@ int raw_rcvArp(struct rawif_in *ctx, uint8_t *pack, size_t len) {
   }
 
   /* Check to see if we know MAC address. */
-  if (ip_getHash(this, &conn, pack_arp->sha)) {
-	/* Response ARP even if does not know its MAC. */
+  if (getMacHash(this, &conn, pack_arp->sha)) {
+	/* Keep silent for ARP if does not know its MAC. */
     debug(LOG_DEBUG, "ARP: Address not found with IP: %s", inet_ntoa(reqaddr));
+    return 0;
   }else{
 	  if (!conn->hisip.s_addr) {
 	    debug(LOG_DEBUG, "ARP: request did not come from known client asking for target: %s",
@@ -141,7 +142,6 @@ int raw_rcvArp(struct rawif_in *ctx, uint8_t *pack, size_t len) {
 	  if (!memcmp(&conn->hisip.s_addr, &taraddr.s_addr, 4)) {
 	    debug(LOG_DEBUG, "ARP: hisip equals target ip: %s",
 	             inet_ntoa(conn->hisip));
-	    return 0;
 	  }
 
 	  conn->lasttime = mainclock_tick();

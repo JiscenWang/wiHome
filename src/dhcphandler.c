@@ -446,7 +446,7 @@ int dhcpHandler(struct rawif_in *ctx, uint8_t *pack, size_t len) {
       return 0; /* Unsupported message type */
   }
 
-  if (ip_getHash(this, &conn, mac)) {
+  if (getMacHash(this, &conn, mac)) {
     if (ip_newConnection(this, &conn, mac))
       return -1;
   }else{
@@ -468,6 +468,7 @@ int dhcpHandler(struct rawif_in *ctx, uint8_t *pack, size_t len) {
 		   &requested_ip, DHCP_OPTION_REQUESTED_IP))
     memcpy(&addr.s_addr, requested_ip->v, 4);
 
+  /* Request an IP address with old IP with wrong net*/
   if (addr.s_addr && ((addr.s_addr & gwOptions->netmask.s_addr)
 		  != (gwOptions->tundevip.s_addr& gwOptions->netmask.s_addr))) {
     debug(LOG_DEBUG, "Client requested address not in net, sending NAK");

@@ -177,7 +177,7 @@ int ip_newConnection(struct gateway_t *this, struct ipconnections_t **conn,
 		 uint8_t *hwaddr);
 int ip_allocClientIP(struct ipconnections_t *conn, struct in_addr *addr,
 		    uint8_t *dhcp_pkt, size_t dhcp_len);
-int ip_getHash(struct gateway_t *this, struct ipconnections_t **conn,
+int getMacHash(struct gateway_t *this, struct ipconnections_t **conn,
 		 uint8_t *hwaddr);
 void ip_relConnection(struct gateway_t *this, uint8_t *hwaddr, struct ipconnections_t *conn);
 int ip_checkTimeout(struct gateway_t *this);

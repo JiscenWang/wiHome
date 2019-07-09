@@ -162,7 +162,7 @@ int ip_delHash(struct gateway_t *this, struct ipconnections_t *conn) {
 /**dhcp_hashadd()
  * Adds a connection to the hash table by MAC address
  **/
-int ip_addHash(struct gateway_t *this, struct ipconnections_t *conn) {
+int addMacHash(struct gateway_t *this, struct ipconnections_t *conn) {
   uint32_t hash;
   struct ipconnections_t *p;
   struct ipconnections_t *p_prev = NULL;
@@ -1148,7 +1148,7 @@ int raw_rcvIp(struct rawif_in *ctx, uint8_t *pack, size_t len) {
   /*
    *  Check to see if we know MAC address
    */
-  if (!ip_getHash(this, &conn, pack_ethh->src)) {
+  if (!getMacHash(this, &conn, pack_ethh->src)) {
     debug(LOG_DEBUG, "IP handler: MAC Address "MAC_FMT" found", MAC_ARG(pack_ethh->src));
   } else {
 	  /*First connection with home gateway, with(statically set) or without(dynamically) IP address*/
@@ -1331,7 +1331,7 @@ int ip_newConnection(struct gateway_t *this, struct ipconnections_t **conn,
 	(*conn)->dhcpstate = 0;
 
 	/*Insert to hash table of connections by MAC address*/
-	ip_addHash(this, *conn);
+	addMacHash(this, *conn);
 
 	/*Jerome TBD for MAC allowed list*/
 	if ((gwOptions->macoklen) && !maccmp((*conn)->hismac, gwOptions)) {
@@ -1409,7 +1409,7 @@ int ip_allocClientIP(struct ipconnections_t *conn, struct in_addr *addr,
 /**dhcp_hashget()
  * Uses the hash tables to find a connection based on the mac address.
  **/
-int ip_getHash(struct gateway_t *this, struct ipconnections_t **conn,
+int getMacHash(struct gateway_t *this, struct ipconnections_t **conn,
 		 uint8_t *hwaddr) {
   struct ipconnections_t *p;
   uint32_t hash;
@@ -1432,7 +1432,7 @@ int ip_getHash(struct gateway_t *this, struct ipconnections_t **conn,
  **/
 void ip_relConnection(struct gateway_t *this, uint8_t *hwaddr, struct ipconnections_t *conn) {
 	if(!conn){
-		 if (ip_getHash(this, &conn, hwaddr)) {
+		 if (getMacHash(this, &conn, hwaddr)) {
 			 return;
 		 }
 	}

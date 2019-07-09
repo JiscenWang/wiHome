@@ -202,12 +202,12 @@ static int cb_raw_rcvPackets(void *pctx, struct pkt_buffer *pb) {
 
   switch (prot) {
     case PKT_ETH_PROTO_ARP:
-    	debug(LOG_DEBUG, "Gateway from raw receives ARP packet of length %d", length);
+    	debug(LOG_DEBUG, "Gateway from raw receives ARP packet of length %d from rawIf %d", length, ctx->idx);
         return raw_rcvArp(ctx, packet, length);
       break;
 
     case PKT_ETH_PROTO_IP:
-    	debug(LOG_DEBUG, "Gateway from raw receives IP packet of length %d", length);
+    	debug(LOG_DEBUG, "Gateway from raw receives IP packet of length %d from rawIf %d", length, ctx->idx);
         return raw_rcvIp(ctx, packet, length);
       break;
 
