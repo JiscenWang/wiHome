@@ -171,7 +171,6 @@ struct rawif_in{
 int initIpHandling(struct gateway_t *pgateway);
 
 int raw_rcvIp(struct rawif_in *ctx, uint8_t *pack, size_t len);
-int tun_rcvIp(struct gateway_t *pgateway, struct pkt_buffer *pb);
 
 int ip_newConnection(struct gateway_t *this, struct ipconnections_t **conn,
 		 uint8_t *hwaddr);
@@ -181,5 +180,7 @@ int getMacHash(struct gateway_t *this, struct ipconnections_t **conn,
 		 uint8_t *hwaddr);
 void ip_relConnection(struct gateway_t *this, uint8_t *hwaddr, struct ipconnections_t *conn);
 int ip_checkTimeout(struct gateway_t *this);
+int ip_tunProcess(struct ipconnections_t *conn,
+		  struct pkt_buffer *pb, int ethhdr);
 
 #endif /* SRC_IPHANDLER_H_ */

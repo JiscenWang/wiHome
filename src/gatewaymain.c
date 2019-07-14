@@ -346,20 +346,16 @@ static void loopMain(void)
 				   webServer, 0);
 
 	/* Initializes the auth server */
-/*
-    debug(LOG_NOTICE, "Creating Auth server on %s:%d", config->gw_address, config->auth_port);
-    if ((authserver = authsvrCreate(config->gw_address, config->auth_port)) == NULL) {
+    debug(LOG_NOTICE, "Creating Auth server on %s:%d", gwOptions->gw_address, gwOptions->auth_port);
+    if (initAuthserver(&authserver, gwOptions->gw_address, gwOptions->auth_port)) {
         debug(LOG_ERR, "Could not create Auth server: %s", strerror(errno));
         exit(1);
     }
-    register_fd_cleanup_on_fork(authserver->serverSock);
-*/
+
     /*Jerome: Add J-module*/
-    /*
     net_select_reg(&sctx, authserver->serverSock,
-                   SELECT_READ, (select_callback)jauthconnect,
+                   SELECT_READ, (select_callback)authConnect,
 				   authserver, 0);
-*/
     /*End, Jerome*/
 
     /* Start control thread */
@@ -514,7 +510,7 @@ void termination_handler(int s)
 	}
 
 	if(webServer){
-		endWebserver();
+		endWebserver(webServer);
 	}
 
     debug(LOG_NOTICE, "Exiting...");

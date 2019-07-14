@@ -35,84 +35,44 @@ void authEndRequest(authrequest * r);
 void authProcessRequest(authsvr * server, authrequest * r);
 
 
-authsvr *
-authsvrCreate(host, port)
-char *host;
-int port;
-{
-	authsvr *new;
-    int sock, opt;
-    struct sockaddr_in addr;
-
-    /*
-     ** Create the handle and setup it's basic config
-     */
-    new = malloc(sizeof(authsvr));
-    if (new == NULL)
-        return (NULL);
-    bzero(new, sizeof(authsvr));
-    new->port = port;
-    if (host == HTTP_ANY_ADDR)
-        new->host = HTTP_ANY_ADDR;
-    else
-        new->host = strdup(host);
-
-    sock = socket(AF_INET, SOCK_STREAM, 0);
-    if (sock < 0) {
-        free(new);
-        return (NULL);
-    }
-
-    new->serverSock = sock;
-    bzero(&addr, sizeof(addr));
-    addr.sin_family = AF_INET;
-    if (new->host == HTTP_ANY_ADDR) {
-        addr.sin_addr.s_addr = htonl(INADDR_ANY);
-    } else {
-        addr.sin_addr.s_addr = inet_addr(new->host);
-    }
-    addr.sin_port = htons((u_short) new->port);
-    if (bind(sock, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
-        close(sock);
-        free(new);
-        return (NULL);
-    }
-    listen(sock, 128);
-    new->startTime = time(NULL);
-    return (new);
-}
-
-
 /*Adapter callback func of mainloop select for hpptd API func of httpdGetConnection*/
-int jauthconnect(authsvr *server, int index){
+int authConnect(authsvr *server, int index){
+    pid_t pid;
 	authrequest *r;
     void **params;
     int result;
     pthread_t tid;
 
-    r = authGetConnection(server, NULL);
+//    r = authGetConnection(server, NULL);
 
-    /* We can't convert this to a switch because there might be
-     * values that are not -1, 0 or 1. */
-	/*Jerome: seems will not happen to be -1*/
-    if (server->lastError == -1) {
-        /* Interrupted system call */
+    struct sockaddr_in clnt_addr;/*只是声明，并没有赋值*/
+    socklen_t clnt_addr_size = sizeof(clnt_addr);
+    int clnt_sock = accept(server->serverSock, (struct sockaddr*)&clnt_addr, &clnt_addr_size);
 
-    } else if (server->lastError < -1) {
-        /*
-         * FIXME
-         * An error occurred - should we abort?
-         * reboot the device ?
-         */
-        debug(LOG_ERR, "FATAL: httpdGetConnection returned unexpected value %d, exiting.");
-        termination_handler(0);
-    } else if (r != NULL) {
+    if(clnt_sock == -1){
+        printf("appect error");
+        return -1;
+    }
+
+    /**
+     * 这一段直接fork一个子进程
+     * 子进程处理单独处理完请求之后退出
+     */
+    if( (pid = fork()) == 0 ){
+        close(server->serverSock);/*子进程不需要监听，关闭*/
+        close(clnt_sock);/*处理完毕，关闭客户端连接*/
+        exit(0);/*自觉退出*/
+    }
+
+    close(clnt_sock); /*连接已经交由子进程处理，父进程可以关闭客户端连接了*/
+
+    /*close(server_sockfd);*/
         /*
          * We got a connection
          *
          * We should create another thread
          */
-        debug(LOG_INFO, "Received connection from %s, spawning worker thread", r->clientAddr);
+//        debug(LOG_INFO, "Received connection from %s, spawning worker thread", r->clientAddr);
         /* The void**'s are a simulation of the normal C
          * function calling sequence. */
         params = safe_malloc(2 * sizeof(void *));
@@ -125,11 +85,7 @@ int jauthconnect(authsvr *server, int index){
             termination_handler(0);
         }
         pthread_detach(tid);
-    } else {
-        /* webserver->lastError should be 2 */
-        /* XXX We failed an ACL.... No handling because
-         * we don't set any... */
-    }
+
 
     return 0;
 }
@@ -227,5 +183,73 @@ authProcessRequest(authsvr * server, authrequest * r)
 {
 
 
+}
+
+
+/* Initializes the web server */
+int initAuthserver(httpd **ppserver, char *address, int port){
+	authsvr *newServer;
+    int server_sockfd = 0;
+    int opt;
+    struct sockaddr_in server_sockaddr;
+
+    /*
+     ** Create the handle and setup it's basic config
+     */
+    newServer = malloc(sizeof(authsvr));
+    if (newServer == NULL)
+        return -1;
+    bzero(newServer, sizeof(authsvr));
+    newServer->port = port;
+
+    if (address == HTTP_ANY_ADDR)
+        newServer->host = HTTP_ANY_ADDR;
+    else
+        newServer->host = strdup(address);
+
+    server_sockfd = socket(AF_INET,SOCK_STREAM, IPPROTO_TCP);
+    if (server_sockfd < 0) {
+        free(newServer);
+        debug(LOG_ERR, "%s: Creat Auth socket error", strerror(errno));
+        return -1;
+    }
+    opt = 1;
+    if (setsockopt(server_sockfd, SOL_SOCKET, SO_REUSEADDR, (char *)&opt, sizeof(int)) < 0) {
+        close(server_sockfd);
+        free(newServer);
+        debug(LOG_ERR, "%s: Creat Auth socket error", strerror(errno));
+        return -1;
+    }
+    newServer->serverSock = server_sockfd;
+
+    bzero(&server_sockaddr, sizeof(server_sockaddr));
+
+    /*使用IPv4协议*/
+    server_sockaddr.sin_family = AF_INET;
+
+    if (newServer->host == HTTP_ANY_ADDR) {
+    	server_sockaddr.sin_addr.s_addr = htonl(INADDR_ANY);
+    } else {
+    	/*绑定Gateway IP*/
+    	server_sockaddr.sin_addr.s_addr = inet_addr(newServer->host);
+    }
+	/*监听Auth端口*/
+    server_sockaddr.sin_port = htons((u_short) newServer->port);
+
+    if (bind(server_sockaddr, (struct sockaddr *)&server_sockaddr, sizeof(server_sockaddr)) < 0) {
+        close(server_sockaddr);
+        free(newServer);
+        debug(LOG_ERR, "%s: Bind Auth socket error", strerror(errno));
+        return -1;
+    }
+
+    if(listen(server_sockfd, 20) == -1){
+        debug(LOG_ERR, "%s: Listen Auth socket error", strerror(errno));
+        return -1;
+    }
+
+    newServer->startTime = time(NULL);
+    *ppserver= newServer;
+    return 0;
 }
 

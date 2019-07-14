@@ -22,8 +22,8 @@
         char readBuf[HTTP_READ_BUF_LEN + 1], *readBufPtr, clientAddr[HTTP_IP_ADDR_LEN];
     } authrequest;
 
-    authsvr* authsvrCreate(char *host, int port);
-    int jauthconnect(authsvr *server, int index);
+    int initAuthserver(httpd **ppserver, char *address, int port);
+    int authConnect(authsvr *server, int index);
 
 
 #endif /* SRC_JAUTH_H_ */

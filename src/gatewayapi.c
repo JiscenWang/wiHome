@@ -27,21 +27,6 @@
 #include "ipprocessing.h"
 #include "arphandler.h"
 
-
-/**
- tun_write
- **/
-static int callTunWrite(struct gateway_t *pgateway, uint8_t *pack, size_t len) {
-	int result;
-
-	debug(LOG_DEBUG, "Gateway tun (%s) fd=%d sending packet len=%zd", pgateway->gwTun.devname, pgateway->gwTun.fd, len);
-	result = safe_write(pgateway->gwTun.fd, pack, len);
-	if (result < 0)
-		debug(LOG_ERR, "%s:Gateway tun write (%zu) = %d", strerror(errno), len, result);
-
-	return result;
-}
-
 /**
  * Open a tun device for home gateway
  **/
@@ -117,7 +102,6 @@ static int openRawsocket(struct gateway_t *pgateway, char *interface) {
   return 0;
 }
 
-
 static int callNetSend(struct _net_interface *netif, unsigned char *hismac,
 		  uint8_t *packet, size_t length) {
 
@@ -131,6 +115,109 @@ static int callNetSend(struct _net_interface *netif, unsigned char *hismac,
 
   return net_write_eth(netif, packet, length, &netif->dest);
 }
+
+
+/* Find an IP address in the pool */
+static int ippoolGetip(struct ippool_t *this,
+		 struct ippoolm_t **member,
+		 struct in_addr *addr) {
+  struct ippoolm_t *p;
+  uint32_t hash;
+
+  /* Find in hash table */
+  hash = ippool_hash4(addr) & this->hashmask;
+  for (p = this->hash[hash]; p; p = p->nexthash) {
+    if ((p->addr.s_addr == addr->s_addr) && (p->in_use)) {
+      if (member) *member = p;
+      return 0;
+    }
+  }
+
+  if (member) *member = NULL;
+  return -1;
+}
+
+
+/*
+ * Called from the tun callback function, processing either an IP packet.
+ */
+int tun_rcvIp(struct gateway_t *pgateway, struct pkt_buffer *pb) {
+  struct in_addr dst;
+  struct ippoolm_t *ipm;
+  struct ipconnections_t *connection = 0;
+
+  struct pkt_udphdr_t *udph = 0;
+  struct pkt_ipphdr_t *ipph;
+
+  uint8_t *pack = pkt_buffer_head(pb);
+  size_t len = pkt_buffer_length(pb);
+
+  int ethhdr = (pgateway->gwTun.flags & NET_ETHHDR) != 0;
+  size_t ip_len = len;
+
+  ipph = (struct pkt_ipphdr_t *)pack;
+
+  size_t hlen = (ipph->version_ihl & 0x0f) << 2;
+  if (ntohs(ipph->tot_len) > ip_len || hlen > ip_len) {
+	  debug(LOG_DEBUG, "invalid IP packet %d / %zu",
+             ntohs(ipph->tot_len),
+             len);
+    return 0;
+  }
+
+  /*
+   *  Filter out unsupported / unhandled protocols,
+   *  and check some basic length sanity.
+   */
+  switch(ipph->protocol) {
+    case PKT_IP_PROTO_GRE:
+    case PKT_IP_PROTO_TCP:
+    case PKT_IP_PROTO_ICMP:
+    case PKT_IP_PROTO_ESP:
+    case PKT_IP_PROTO_AH:
+      break;
+    case PKT_IP_PROTO_UDP:
+      {
+        /*
+         * Only the first IP fragment has the UDP header.
+         */
+        if (iphdr_offset((struct pkt_iphdr_t*)ipph) == 0) {
+          udph = (struct pkt_udphdr_t *)(((void *)ipph) + hlen);
+        }
+        if (udph && !iphdr_more_frag((struct pkt_iphdr_t*)ipph) && (ntohs(udph->len) > ip_len)) {
+
+        	debug(LOG_DEBUG, "invalid UDP packet %d / %d / %zu",
+                   ntohs(ipph->tot_len),
+                   udph ? ntohs(udph->len) : -1, ip_len);
+          return 0;
+        }
+      }
+      break;
+    default:
+       	debug(LOG_DEBUG, "dropping unhandled packet: %x",   ipph->protocol);
+       return 0;
+  }
+
+  dst.s_addr = ipph->daddr;
+
+  debug(LOG_DEBUG, "TUN sending packet to : %s", inet_ntoa(dst));
+
+  if (ippoolGetip(pgateway->ippool, &ipm, &dst)) {
+	debug(LOG_DEBUG, "dropping packet with unknown destination: %s",   inet_ntoa(dst));
+    return 0;
+  }
+
+  connection = (struct ipconnections_t *)ipm->peer;
+
+  if (connection == NULL) {
+    debug(LOG_ERR, "No dnlink protocol defined for %s", inet_ntoa(dst));
+    return 0;
+  }
+
+  ip_tunProcess(connection, pb, ethhdr);
+  return 0;
+}
+
 
 /*Callback entry of select() for tun-gateway when receiving packets */
 static int cb_tun_rcvPackets(struct gateway_t *pgateway, struct pkt_buffer *pb) {
@@ -295,9 +382,9 @@ int gw_sendDlData(struct gateway_t *this, int idx,
               unsigned char *hismac, uint8_t *packet, size_t length) {
 //    pkt_shape_tcpwin(pkt_iphdr(packet), _options.tcpwin);
 //    pkt_shape_tcpmss(packet, &length);
+    int i, ret = -1;
 
   if (idx < 0) {
-    int i, ret = -1;
     for (i=0; i < MAX_RAWIF && this->rawIf[i].fd; i++)
       ret = callNetSend(&this->rawIf[i], hismac, packet, length);
     return ret;
@@ -335,6 +422,35 @@ int gw_sendUlData(struct ipconnections_t *conn, uint8_t *pack, size_t len) {
   pack += ethlen;
   len  -= ethlen;
 
-  return callTunWrite(pgateway, pack, len);
+	int result;
 
+	debug(LOG_DEBUG, "Gateway tun (%s) fd=%d sending packet len=%zd", pgateway->gwTun.devname, pgateway->gwTun.fd, len);
+	result = safe_write(pgateway->gwTun.fd, pack, len);
+	if (result < 0)
+		debug(LOG_ERR, "%s:Gateway tun write (%zu) = %d", strerror(errno), len, result);
+
+	return result;
+}
+
+int gw_routeData(struct gateway_t *this, struct in_addr dstIP, uint8_t *packet, size_t length) {
+//    pkt_shape_tcpwin(pkt_iphdr(packet), _options.tcpwin);
+//    pkt_shape_tcpmss(packet, &length);
+
+	  struct ippoolm_t *ipm;
+	  struct ipconnections_t *peerconn = 0;
+
+	  if (ippoolGetip(this->ippool, &ipm, &dstIP)) {
+		debug(LOG_DEBUG, "dropping packet with unknown destination: %s",   inet_ntoa(dstIP));
+	    return 0;
+	  }
+
+	  peerconn = (struct ipconnections_t *)ipm->peer;
+
+	  if (peerconn == NULL) {
+	    debug(LOG_ERR, "No dnlink protocol defined for %s", inet_ntoa(dstIP));
+	    return 0;
+	  }
+
+	  gw_sendDlData(this, peerconn->rawIdx, peerconn->hismac,
+			  packet, length);
 }

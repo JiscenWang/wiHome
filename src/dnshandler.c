@@ -147,6 +147,116 @@ int sendDnsNak(struct ipconnections_t *conn, uint8_t *pack, size_t len) {
   return 0;
 }
 
+/* *   dhcp_nakDNS() - */
+static
+int sendDnsRsp(struct ipconnections_t *conn, uint8_t *pack, size_t len) {
+
+	struct gateway_t *this = conn->parent;
+
+	struct pkt_ethhdr_t *ethh = pkt_ethhdr(pack);
+	struct pkt_iphdr_t  *iph  = pkt_iphdr(pack);
+	struct pkt_udphdr_t *udph = pkt_udphdr(pack);
+    struct dns_packet_t *dnsp = pkt_dnspkt(pack);
+
+	struct pkt_ethhdr_t *answer_ethh;
+	struct pkt_iphdr_t  *answer_iph;
+	struct pkt_udphdr_t *answer_udph;
+	struct dns_packet_t *answer_dns;
+
+	uint8_t answer[1500];
+    uint8_t *p;
+    uint8_t query[256];
+    uint8_t reply[4];
+
+	size_t query_len = 0;
+	size_t udp_len;
+	size_t length;
+
+	int n;
+
+	memcpy(reply, &this->ourip.s_addr, 4);
+
+	p = dnsp->records;
+
+	debug(LOG_DEBUG, "It was a matching query!\n");
+
+	do {
+		if (query_len < 256)
+			query[query_len++] = *p;
+		else
+			break;
+	}
+	while (*p++ != 0); /* TODO */
+
+  for (n=0; n<4; n++) {
+    if (query_len < 256)
+      query[query_len++] = *p++;
+  }
+
+  query[query_len++] = 0xc0;
+  query[query_len++] = 0x0c;
+  query[query_len++] = 0x00;
+  query[query_len++] = 0x01;
+  query[query_len++] = 0x00;
+  query[query_len++] = 0x01;
+  query[query_len++] = 0x00;
+  query[query_len++] = 0x00;
+  query[query_len++] = 0x01;
+  query[query_len++] = 0x2c;
+  query[query_len++] = 0x00;
+  query[query_len++] = 0x04;
+  memcpy(query + query_len, reply, 4);
+  query_len += 4;
+
+  memcpy(answer, pack, len); /* TODO */
+
+  answer_ethh = pkt_ethhdr(answer);
+  answer_iph = pkt_iphdr(answer);
+  answer_udph = pkt_udphdr(answer);
+  answer_dns = pkt_dnspkt(answer);
+
+  /* DNS Header */
+  answer_dns->id      = dnsp->id;
+  answer_dns->flags   = htons(0x8000);
+  answer_dns->qdcount = htons(0x0001);
+  answer_dns->ancount = htons(0x0001);
+  answer_dns->nscount = htons(0x0000);
+  answer_dns->arcount = htons(0x0000);
+  memcpy(answer_dns->records, query, query_len);
+
+  /* UDP header */
+  udp_len = query_len + DHCP_DNS_HLEN + PKT_UDP_HLEN;
+  answer_udph->len = htons(udp_len);
+  answer_udph->src = udph->dst;
+  answer_udph->dst = udph->src;
+
+  /* Ip header */
+  answer_iph->version_ihl = PKT_IP_VER_HLEN;
+  answer_iph->tos = 0;
+  answer_iph->tot_len = htons(udp_len + PKT_IP_HLEN);
+  answer_iph->id = 0;
+  answer_iph->opt_off_high = 0;
+  answer_iph->off_low = 0;
+  answer_iph->ttl = 0x10;
+  answer_iph->protocol = 0x11;
+  answer_iph->check = 0; /* Calculate at end of packet */
+  memcpy(&answer_iph->daddr, &iph->saddr, PKT_IP_ALEN);
+  memcpy(&answer_iph->saddr, &iph->daddr, PKT_IP_ALEN);
+
+  /* Ethernet header */
+  memcpy(answer_ethh->dst, &ethh->src, PKT_ETH_ALEN);
+  memcpy(answer_ethh->src, &ethh->dst, PKT_ETH_ALEN);
+
+  /* Work out checksums */
+  chksum(answer_iph);
+
+  /* Calculate total length */
+  length = udp_len + sizeofip(answer);
+
+  gw_sendDlData(conn->parent, conn->rawIdx, conn->hismac, answer, length);
+  return 0;
+}
+
 static int matchRedirectHost(uint8_t *r, char *name) {
   int r_len = strlen((char *)r);
   int name_len = strlen(name);
@@ -215,116 +325,14 @@ int dnsHandler(struct ipconnections_t *conn, uint8_t *pack, size_t *plen) {
       if (flags == 0x0100 && qdcount >= 0x0001) {
 
         char *hostname = gwOptions->redirhost;
-
-        uint8_t *p;
-        uint8_t query[256];
-        uint8_t reply[4];
         int match = 0;
 
         if (!match && hostname) {
         	match = matchRedirectHost(q, hostname);
-        	if (match) {
-        		memcpy(reply, &gwOptions->tundevip.s_addr, 4);
-        	}
         }
 
         if (match) {
-
-        	uint8_t answer[1500];
-
-        	struct pkt_ethhdr_t *ethh = pkt_ethhdr(pack);
-        	struct pkt_iphdr_t  *iph  = pkt_iphdr(pack);
-        	struct pkt_udphdr_t *udph = pkt_udphdr(pack);
-
-        	struct pkt_ethhdr_t *answer_ethh;
-        	struct pkt_iphdr_t  *answer_iph;
-        	struct pkt_udphdr_t *answer_udph;
-        	struct dns_packet_t *answer_dns;
-
-        	size_t query_len = 0;
-        	size_t udp_len;
-        	size_t length;
-
-        	int n;
-
-        	p = dnsp->records;
-
-        	debug(LOG_DEBUG, "It was a matching query!\n");
-
-        	do {
-        		if (query_len < 256)
-        			query[query_len++] = *p;
-        		else
-        			break;
-        	}
-        	while (*p++ != 0); /* TODO */
-
-          for (n=0; n<4; n++) {
-            if (query_len < 256)
-              query[query_len++] = *p++;
-          }
-
-          query[query_len++] = 0xc0;
-          query[query_len++] = 0x0c;
-          query[query_len++] = 0x00;
-          query[query_len++] = 0x01;
-          query[query_len++] = 0x00;
-          query[query_len++] = 0x01;
-          query[query_len++] = 0x00;
-          query[query_len++] = 0x00;
-          query[query_len++] = 0x01;
-          query[query_len++] = 0x2c;
-          query[query_len++] = 0x00;
-          query[query_len++] = 0x04;
-          memcpy(query + query_len, reply, 4);
-          query_len += 4;
-
-          memcpy(answer, pack, *plen); /* TODO */
-
-          answer_ethh = pkt_ethhdr(answer);
-          answer_iph = pkt_iphdr(answer);
-          answer_udph = pkt_udphdr(answer);
-          answer_dns = pkt_dnspkt(answer);
-
-          /* DNS Header */
-          answer_dns->id      = dnsp->id;
-          answer_dns->flags   = htons(0x8000);
-          answer_dns->qdcount = htons(0x0001);
-          answer_dns->ancount = htons(0x0001);
-          answer_dns->nscount = htons(0x0000);
-          answer_dns->arcount = htons(0x0000);
-          memcpy(answer_dns->records, query, query_len);
-
-          /* UDP header */
-          udp_len = query_len + DHCP_DNS_HLEN + PKT_UDP_HLEN;
-          answer_udph->len = htons(udp_len);
-          answer_udph->src = udph->dst;
-          answer_udph->dst = udph->src;
-
-          /* Ip header */
-          answer_iph->version_ihl = PKT_IP_VER_HLEN;
-          answer_iph->tos = 0;
-          answer_iph->tot_len = htons(udp_len + PKT_IP_HLEN);
-          answer_iph->id = 0;
-          answer_iph->opt_off_high = 0;
-          answer_iph->off_low = 0;
-          answer_iph->ttl = 0x10;
-          answer_iph->protocol = 0x11;
-          answer_iph->check = 0; /* Calculate at end of packet */
-          memcpy(&answer_iph->daddr, &iph->saddr, PKT_IP_ALEN);
-          memcpy(&answer_iph->saddr, &iph->daddr, PKT_IP_ALEN);
-
-          /* Ethernet header */
-          memcpy(answer_ethh->dst, &ethh->src, PKT_ETH_ALEN);
-          memcpy(answer_ethh->src, &ethh->dst, PKT_ETH_ALEN);
-
-          /* Work out checksums */
-          chksum(answer_iph);
-
-          /* Calculate total length */
-          length = udp_len + sizeofip(answer);
-
-          gw_sendDlData(conn->parent, conn->rawIdx, conn->hismac, answer, length);
+        	sendDnsRsp(conn, pack, *plen);
           return 0;
         }
       }

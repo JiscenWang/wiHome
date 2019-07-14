@@ -127,7 +127,7 @@ uint32_t macHash(uint8_t *hwaddr) {
  * dhcp_hashdel()
  * Removes a connection from the hash table
  **/
-int ip_delHash(struct gateway_t *this, struct ipconnections_t *conn) {
+int delMacHash(struct gateway_t *this, struct ipconnections_t *conn) {
   uint32_t hash;
   struct ipconnections_t *p = NULL;
   struct ipconnections_t *p_prev = NULL;
@@ -183,7 +183,7 @@ int addMacHash(struct gateway_t *this, struct ipconnections_t *conn) {
 /**dhcp_hashinit()
  * Initialises hash tables
  **/
-static int ip_initHash(struct gateway_t *this, int listsize) {
+static int initMacHash(struct gateway_t *this, int listsize) {
   /* Determine hashlog */
   for ((this)->hashlog = 0;
        ((1 << (this)->hashlog) < listsize);
@@ -261,7 +261,7 @@ static int parse_ip_aton(struct in_addr *addr, struct in_addr *mask, char *pool)
 }
 
 
-int ippool_hashadd(struct ippool_t *this, struct ippoolm_t *member) {
+int ip_addHash(struct ippool_t *this, struct ippoolm_t *member) {
   uint32_t hash;
   struct ippoolm_t *p = NULL;
   struct ippoolm_t *p_prev = NULL;
@@ -280,7 +280,7 @@ int ippool_hashadd(struct ippool_t *this, struct ippoolm_t *member) {
   return 0; /* Always OK to insert */
 }
 
-int ippool_freeip(struct ippool_t *this, struct ippoolm_t *member) {
+int ip_freeIp(struct ippool_t *this, struct ippoolm_t *member) {
 
 /*Jerome TBD for print if necessary*/
 	//ippool_print(0, this);
@@ -312,7 +312,7 @@ int ippool_freeip(struct ippool_t *this, struct ippoolm_t *member) {
  * ippool_newip
  * Get an IP address. If addr = 0.0.0.0 get a dynamic IP address. Otherwise
  * check to see if the given address is available. If available allocate it there, otherwise allocate a new one*/
-int ippool_newip(struct ippool_t *this,
+int ip_newIp(struct ippool_t *this,
 		 struct ippoolm_t **member, struct in_addr *addr) {
   struct ippoolm_t *p = NULL;
   struct ippoolm_t *p2 = NULL;
@@ -351,7 +351,7 @@ int ippool_newip(struct ippool_t *this,
     }
   }
 
-  if (p2) { /* Was allocated from dynamic address pool */
+  if (p2) { /* Was allocated from address pool */
 
     /* Remove from linked list of free dynamic addresses */
     if (p2->prev)
@@ -379,7 +379,7 @@ int ippool_newip(struct ippool_t *this,
 
 /* Create new address pool */
 /*Jerome TBD for defining more parameters*/
-static int ippool_new(struct ippool_t **this, char *dyn, int start, int end) {
+static int ip_newPool(struct ippool_t **this, char *dyn, int start, int end) {
 	s_gwOptions *gwOptions = get_gwOptions();
 
   /* Parse only first instance of pool for now */
@@ -513,34 +513,13 @@ static int ippool_new(struct ippool_t **this, char *dyn, int start, int end) {
     (*this)->lastdyn = &((*this)->member[i]);
     (*this)->member[i].next = NULL; /* Redundant */
 
-    ippool_hashadd(*this, &(*this)->member[i]);
+    ip_addHash(*this, &(*this)->member[i]);
   }
 
   /*Jerome TBD for print if necessary*/
 //    ippool_print(0, *this);
 
   return 0;
-}
-
-
-/* Find an IP address in the pool */
-static int ippoolGetip(struct ippool_t *this,
-		 struct ippoolm_t **member,
-		 struct in_addr *addr) {
-  struct ippoolm_t *p;
-  uint32_t hash;
-
-  /* Find in hash table */
-  hash = ippool_hash4(addr) & this->hashmask;
-  for (p = this->hash[hash]; p; p = p->nexthash) {
-    if ((p->addr.s_addr == addr->s_addr) && (p->in_use)) {
-      if (member) *member = p;
-      return 0;
-    }
-  }
-
-  if (member) *member = NULL;
-  return -1;
 }
 
 
@@ -833,82 +812,6 @@ int checkHttpDnat(struct ipconnections_t *conn, uint8_t *pack,
 
 
 /**
- * Call this function to send an IP packet to the peer.
- **/
-static int tunDataProcess(struct ipconnections_t *conn,
-		  struct pkt_buffer *pb, int ethhdr) {
-
-  struct gateway_t *pgateway = conn->parent;
-
-  uint8_t *packet = pkt_buffer_head(pb);
-  size_t length = pkt_buffer_length(pb);
-
-
-  char do_checksum = 0;
-  char allowed = 0;
-
-  int authstate = 0;
-
-    size_t hdrlen = sizeofeth2(tag);
-    if (pb->offset < hdrlen) {
-      debug(LOG_ERR, "bad buffer off=%d hdr=%d",
-             (int) pb->offset, (int) hdrlen);
-      return 0;
-    }
-    pkt_buffer_grow(pb, hdrlen);
-    packet = pkt_buffer_head(pb);
-    length = pkt_buffer_length(pb);
-	debug(LOG_DEBUG, "adding %zd to IP frame length %zd",   hdrlen, length);
-
-  if (!pgateway) {
-    debug(LOG_WARNING, "DHCP connection no longer valid");
-    return 0;
-  }
-
-  authstate = conn->authstate;
-
-  setEthhdr(packet, conn->hismac, pgateway->rawIf[0].hwaddr, PKT_ETH_PROTO_IP);
-
-  struct pkt_iphdr_t  *pack_iph  = pkt_iphdr(packet);
-  struct pkt_udphdr_t *pack_udph = pkt_udphdr(packet);
-
-  /* Was it a DNS response? */
-  if (pack_iph->protocol == PKT_IP_PROTO_UDP &&
-		  pack_udph->src == htons(DHCP_DNS)) {
-  	debug(LOG_DEBUG, "A DNS response");
-  	allowed = 1; /* Is allowed DNS */
-
-  }
-
-  switch (authstate) {
-
-    case AUTH_CLIENT:
-      break;
-
-    case NEW_CLIENT:
-      /* undo destination NAT */
-      if (checkHttpUndoDNAT(conn, packet, &length, 1, &do_checksum) && !allowed) {
-    	debug(LOG_DEBUG, "checkHttpUndoDNAT() returns true");
-        return 0;
-      }
-      break;
-
-    case DROP_CLIENT:
-		debug(LOG_DEBUG, "drop");
-    	return 0;
-
-    default:
-		debug(LOG_DEBUG, "Unhandled authstate %d",   authstate);
-    	return 0;
-  }
-
-  if (do_checksum)
-      chksum(pkt_iphdr(packet));
-
-  return gw_sendDlData(pgateway, conn->rawIdx, conn->hismac, packet, length);
-}
-
-/**
  * Allocates a new instance of the library
  **/
 int initIpHandling(struct gateway_t *pgateway) {
@@ -916,12 +819,12 @@ int initIpHandling(struct gateway_t *pgateway) {
 	s_gwOptions *gwOptions = get_gwOptions();
 
   /* Allocate ippool for dynamic IP address allocation */
-	if (ippool_new(&pgateway->ippool, gwOptions->dhcpdynip, 0, 0)) {
+	if (ip_newPool(&pgateway->ippool, gwOptions->dhcpdynip, 0, 0)) {
        debug(LOG_ERR, "Failed to allocate IP pool!");
        return -1;
      }
 
-  if (ip_initHash(pgateway, DHCP_HASH_TABLE))
+  if (initMacHash(pgateway, DHCP_HASH_TABLE))
     return -1; /* Failed to allocate hash tables */
 
   /* Initialise various variables */
@@ -931,87 +834,6 @@ int initIpHandling(struct gateway_t *pgateway) {
   /* Initialise call back functions
   dhcp->cb_data_ind = NULL;
 */
-  return 0;
-}
-
-
-/*
- * Called from the tun callback function, processing either an IP packet.
- */
-int tun_rcvIp(struct gateway_t *pgateway, struct pkt_buffer *pb) {
-  struct in_addr dst;
-  struct ippoolm_t *ipm;
-  struct ipconnections_t *connection = 0;
-
-  struct pkt_udphdr_t *udph = 0;
-  struct pkt_ipphdr_t *ipph;
-
-  uint8_t *pack = pkt_buffer_head(pb);
-  size_t len = pkt_buffer_length(pb);
-
-  int ethhdr = (pgateway->gwTun.flags & NET_ETHHDR) != 0;
-  size_t ip_len = len;
-
-  ipph = (struct pkt_ipphdr_t *)pack;
-
-  size_t hlen = (ipph->version_ihl & 0x0f) << 2;
-  if (ntohs(ipph->tot_len) > ip_len || hlen > ip_len) {
-	  debug(LOG_DEBUG, "invalid IP packet %d / %zu",
-             ntohs(ipph->tot_len),
-             len);
-    return 0;
-  }
-
-  /*
-   *  Filter out unsupported / unhandled protocols,
-   *  and check some basic length sanity.
-   */
-  switch(ipph->protocol) {
-    case PKT_IP_PROTO_GRE:
-    case PKT_IP_PROTO_TCP:
-    case PKT_IP_PROTO_ICMP:
-    case PKT_IP_PROTO_ESP:
-    case PKT_IP_PROTO_AH:
-      break;
-    case PKT_IP_PROTO_UDP:
-      {
-        /*
-         * Only the first IP fragment has the UDP header.
-         */
-        if (iphdr_offset((struct pkt_iphdr_t*)ipph) == 0) {
-          udph = (struct pkt_udphdr_t *)(((void *)ipph) + hlen);
-        }
-        if (udph && !iphdr_more_frag((struct pkt_iphdr_t*)ipph) && (ntohs(udph->len) > ip_len)) {
-
-        	debug(LOG_DEBUG, "invalid UDP packet %d / %d / %zu",
-                   ntohs(ipph->tot_len),
-                   udph ? ntohs(udph->len) : -1, ip_len);
-          return 0;
-        }
-      }
-      break;
-    default:
-       	debug(LOG_DEBUG, "dropping unhandled packet: %x",   ipph->protocol);
-       return 0;
-  }
-
-  dst.s_addr = ipph->daddr;
-
-  debug(LOG_DEBUG, "TUN sending packet to : %s", inet_ntoa(dst));
-
-  if (ippoolGetip(pgateway->ippool, &ipm, &dst)) {
-	debug(LOG_DEBUG, "dropping packet with unknown destination: %s",   inet_ntoa(dst));
-    return 0;
-  }
-
-  connection = (struct ipconnections_t *)ipm->peer;
-
-  if (connection == NULL) {
-    debug(LOG_ERR, "No dnlink protocol defined for %s", inet_ntoa(dst));
-    return 0;
-  }
-
-  tunDataProcess(connection, pb, ethhdr);
   return 0;
 }
 
@@ -1063,10 +885,9 @@ int raw_rcvIp(struct rawif_in *ctx, uint8_t *pack, size_t len) {
    */
   if ((memcmp(pack_ethh->dst, this->rawIf[rawifindex].hwaddr, PKT_ETH_ALEN)) &&
       (memcmp(pack_ethh->dst, broadcastmac, PKT_ETH_ALEN))) {
-
-	  debug(LOG_DEBUG, "Not for our MAC or broadcast: "MAC_FMT"",
-               MAC_ARG(pack_ethh->dst));
-      return 0;
+		 debug(LOG_DEBUG, "Not for our MAC, or broadcast: "MAC_FMT"",
+	               MAC_ARG(pack_ethh->dst));
+		 return 0;
   }
 
   /*
@@ -1263,6 +1084,14 @@ int raw_rcvIp(struct rawif_in *ctx, uint8_t *pack, size_t len) {
   }
   /* End of DNS handling part*/
 
+  if(((pack_iph->daddr & gwOptions->netmask.s_addr)
+		  == (gwOptions->tundevip.s_addr& gwOptions->netmask.s_addr))
+		  & (pack_iph->daddr != gwOptions->tundevip.s_addr)){
+	  /*Local data transfer is routing to peer IP*/
+	  gw_routeData(conn->parent, dstaddr, pack, len);
+	  return 0;
+  }
+
   conn->lasttime = mainclock_tick();
   authstate = conn->authstate;
 
@@ -1274,9 +1103,11 @@ int raw_rcvIp(struct rawif_in *ctx, uint8_t *pack, size_t len) {
 
     case NEW_CLIENT:
         /* Http request will be DNAT, others are dropped, unless it is allowed DNS or LAN packets*/
-      if (checkHttpDnat(conn, pack, len, 1, &do_checksum) && !allowed) {
-        debug(LOG_DEBUG, "dropping packet; not nat'ed");
-        return 0;
+      if (!allowed){
+    	  if(checkHttpDnat(conn, pack, len, 1, &do_checksum)){
+    	       debug(LOG_DEBUG, "dropping packet; not nat'ed");
+    	       return 0;
+    	  }
       }
       break;
 
@@ -1289,16 +1120,11 @@ int raw_rcvIp(struct rawif_in *ctx, uint8_t *pack, size_t len) {
       return 0;
   }
 
-  /*done:*/
-
-
   if (do_checksum)
     chksum(pack_iph);
 
   debug(LOG_DEBUG, "cb_dhcp_data_ind. Packet is sending via Tun. DHCP authstate: %d",
     conn->authstate);
-  srcaddr.s_addr = pack_iph->saddr;
-  dstaddr.s_addr = pack_iph->daddr;
   debug(LOG_DEBUG, "DHCP sending packet from IP %s", inet_ntoa(srcaddr));
   debug(LOG_DEBUG, "DHCP sending packet to IP %s of length %d", inet_ntoa(dstaddr), len);
 
@@ -1378,7 +1204,7 @@ int ip_allocClientIP(struct ipconnections_t *conn, struct in_addr *addr,
 	    }
 
 	    /* Allocate IP address */
-	    if (ippool_newip(pgateway->ippool, &ipm, &reqip)) {
+	    if (ip_newIp(pgateway->ippool, &ipm, &reqip)) {
 	        debug(LOG_ERR, "Failed to allocate either static or dynamic IP address");
 	        return -1;
 	    }
@@ -1444,8 +1270,8 @@ void ip_relConnection(struct gateway_t *this, uint8_t *hwaddr, struct ipconnecti
 	    struct ippoolm_t *member = (struct ippoolm_t *) conn->uplink;
 
 	    if (member->in_use && (!conn || !conn->is_reserved)) {
-	      if (ippool_freeip(this->ippool, member)) {
-	    	  debug(LOG_ERR, "ippool_freeip(%s) failed!",
+	      if (ip_freeIp(this->ippool, member)) {
+	    	  debug(LOG_ERR, "Free ip(%s) from pool failed!",
 	               inet_ntoa(member->addr));
 	      }
 	    }
@@ -1455,7 +1281,7 @@ void ip_relConnection(struct gateway_t *this, uint8_t *hwaddr, struct ipconnecti
 	           MAC_ARG(conn->hismac));
 
 	  /* First remove from hash table */
-	  ip_delHash(this, conn);
+	  delMacHash(this, conn);
 
 	  /* Remove from link of used */
 	  if ((conn->next) && (conn->prev)) {
@@ -1512,3 +1338,81 @@ int ip_checkTimeout(struct gateway_t *this)
 
 	  return 0;
 }
+
+
+/**
+ * Call this function to send an IP packet to the peer.
+ **/
+int ip_tunProcess(struct ipconnections_t *conn,
+		  struct pkt_buffer *pb, int ethhdr) {
+
+  struct gateway_t *pgateway = conn->parent;
+
+  uint8_t *packet = pkt_buffer_head(pb);
+  size_t length = pkt_buffer_length(pb);
+
+
+  char do_checksum = 0;
+  char allowed = 0;
+
+  int authstate = 0;
+
+    size_t hdrlen = sizeofeth2(tag);
+    if (pb->offset < hdrlen) {
+      debug(LOG_ERR, "bad buffer off=%d hdr=%d",
+             (int) pb->offset, (int) hdrlen);
+      return 0;
+    }
+    pkt_buffer_grow(pb, hdrlen);
+    packet = pkt_buffer_head(pb);
+    length = pkt_buffer_length(pb);
+	debug(LOG_DEBUG, "adding %zd to IP frame length %zd",   hdrlen, length);
+
+  if (!pgateway) {
+    debug(LOG_WARNING, "DHCP connection no longer valid");
+    return 0;
+  }
+
+  authstate = conn->authstate;
+
+  setEthhdr(packet, conn->hismac, pgateway->rawIf[0].hwaddr, PKT_ETH_PROTO_IP);
+
+  struct pkt_iphdr_t  *pack_iph  = pkt_iphdr(packet);
+  struct pkt_udphdr_t *pack_udph = pkt_udphdr(packet);
+
+  /* Was it a DNS response? */
+  if (pack_iph->protocol == PKT_IP_PROTO_UDP &&
+		  pack_udph->src == htons(DHCP_DNS)) {
+  	debug(LOG_DEBUG, "A DNS response");
+  	allowed = 1; /* Is allowed DNS */
+
+  }
+
+  switch (authstate) {
+
+    case AUTH_CLIENT:
+      break;
+
+    case NEW_CLIENT:
+      /* undo destination NAT */
+      if (checkHttpUndoDNAT(conn, packet, &length, 1, &do_checksum) && !allowed) {
+    	debug(LOG_DEBUG, "checkHttpUndoDNAT() returns true");
+        return 0;
+      }
+      break;
+
+    case DROP_CLIENT:
+		debug(LOG_DEBUG, "drop");
+    	return 0;
+
+    default:
+		debug(LOG_DEBUG, "Unhandled authstate %d",   authstate);
+    	return 0;
+  }
+
+  if (do_checksum)
+      chksum(pkt_iphdr(packet));
+
+  return gw_sendDlData(pgateway, conn->rawIdx, conn->hismac, packet, length);
+}
+
