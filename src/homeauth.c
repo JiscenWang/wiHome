@@ -35,62 +35,6 @@ void authEndRequest(authrequest * r);
 void authProcessRequest(authsvr * server, authrequest * r);
 
 
-/*Adapter callback func of mainloop select for hpptd API func of httpdGetConnection*/
-int authConnect(authsvr *server, int index){
-    pid_t pid;
-	authrequest *r;
-    void **params;
-    int result;
-    pthread_t tid;
-
-//    r = authGetConnection(server, NULL);
-
-    struct sockaddr_in clnt_addr;/*只是声明，并没有赋值*/
-    socklen_t clnt_addr_size = sizeof(clnt_addr);
-    int clnt_sock = accept(server->serverSock, (struct sockaddr*)&clnt_addr, &clnt_addr_size);
-
-    if(clnt_sock == -1){
-        printf("appect error");
-        return -1;
-    }
-
-    /**
-     * 这一段直接fork一个子进程
-     * 子进程处理单独处理完请求之后退出
-     */
-    if( (pid = fork()) == 0 ){
-        close(server->serverSock);/*子进程不需要监听，关闭*/
-        close(clnt_sock);/*处理完毕，关闭客户端连接*/
-        exit(0);/*自觉退出*/
-    }
-
-    close(clnt_sock); /*连接已经交由子进程处理，父进程可以关闭客户端连接了*/
-
-    /*close(server_sockfd);*/
-        /*
-         * We got a connection
-         *
-         * We should create another thread
-         */
-//        debug(LOG_INFO, "Received connection from %s, spawning worker thread", r->clientAddr);
-        /* The void**'s are a simulation of the normal C
-         * function calling sequence. */
-        params = safe_malloc(2 * sizeof(void *));
-        *params = server;
-        *(params + 1) = r;
-
-        result = pthread_create(&tid, NULL, (void *)thread_authsvr, (void *)params);
-        if (result != 0) {
-            debug(LOG_ERR, "FATAL: Failed to create a new thread (httpd) - exiting");
-            termination_handler(0);
-        }
-        pthread_detach(tid);
-
-
-    return 0;
-}
-
-
 /** Main request handling thread.
 @param args Two item array of void-cast pointers to the httpd and request struct
 */
@@ -186,6 +130,47 @@ authProcessRequest(authsvr * server, authrequest * r)
 }
 
 
+/*Adapter callback func of mainloop select for hpptd API func of httpdGetConnection*/
+int authConnect(authsvr *server, int index){
+    pid_t pid;
+	authrequest *r;
+    void **params;
+    int result;
+    pthread_t tid;
+
+//    r = authGetConnection(server, NULL);
+
+    struct sockaddr_in clnt_addr;/*只是声明，并没有赋值*/
+    socklen_t clnt_addr_size = sizeof(clnt_addr);
+    int clnt_sock = accept(server->serverSock, (struct sockaddr*)&clnt_addr, &clnt_addr_size);
+
+    if(clnt_sock == -1){
+        debug(LOG_ERR, "Failed to accept a new connection");
+        return -1;
+    }
+        /*
+         * We got a connection
+         *
+         * We should create another thread
+         */
+//        debug(LOG_INFO, "Received connection from %s, spawning worker thread", r->clientAddr);
+        /* The void**'s are a simulation of the normal C
+         * function calling sequence. */
+        params = safe_malloc(2 * sizeof(void *));
+        *params = server;
+        *(params + 1) = r;
+
+        result = pthread_create(&tid, NULL, (void *)thread_authsvr, (void *)params);
+        if (result != 0) {
+            debug(LOG_ERR, "FATAL: Failed to create a new thread (httpd) - exiting");
+            termination_handler(0);
+        }
+        pthread_detach(tid);
+
+    return 0;
+}
+
+
 /* Initializes the web server */
 int initAuthserver(httpd **ppserver, char *address, int port){
 	authsvr *newServer;
@@ -236,8 +221,8 @@ int initAuthserver(httpd **ppserver, char *address, int port){
 	/*监听Auth端口*/
     server_sockaddr.sin_port = htons((u_short) newServer->port);
 
-    if (bind(server_sockaddr, (struct sockaddr *)&server_sockaddr, sizeof(server_sockaddr)) < 0) {
-        close(server_sockaddr);
+    if (bind(server_sockfd, (struct sockaddr *)&server_sockaddr, sizeof(server_sockaddr)) < 0) {
+        close(server_sockfd);
         free(newServer);
         debug(LOG_ERR, "%s: Bind Auth socket error", strerror(errno));
         return -1;

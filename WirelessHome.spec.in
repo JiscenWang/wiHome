@@ -5,7 +5,7 @@
 %define version @VERSION@
 %define release 1mdk
 
-Summary: The WiFi Guard Dog project is a complete and embeedable captive portal solution for wireless community groups or individuals who wish to open a free HotSpot while still preventing abuse of their Internet connection.
+Summary: The wiHome project is a solution for self fun at home.
 Name: %{name}
 Version: %{version}
 Release: %{release}
@@ -13,7 +13,7 @@ BuildRoot: %{_tmppath}/%{name}-%{version}-root
 Prereq: /sbin/ldconfig
 
 %description
-The WiFi Guard Dog project is a complete and embeedable captive portal solution for wireless community groups or individuals who wish to open a free HotSpot while still preventing abuse of their Internet connection.
+The wiHome project is a solution for self fun at home.
 
 %prep
 %setup -q
@@ -29,7 +29,7 @@ mkdir -p $RPM_BUILD_ROOT%{_prefix}
 
 # Will this overide previous config file?
 mkdir -p $RPM_BUILD_ROOT/etc
-cp JM.conf $RPM_BUILD_ROOT/etc
+cp WirelessHome.conf $RPM_BUILD_ROOT/etc
 
 %makeinstall
 

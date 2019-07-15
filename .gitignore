@@ -68,3 +68,4 @@ dkms.conf
 /config.h
 /stamp-h1
 /next
+/config.h.in~
