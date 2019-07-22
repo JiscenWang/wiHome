@@ -10,6 +10,8 @@
 
 #include "httpd.h"
 
+void thread_httpd(void *args);
+
 int rcvHttpConnection(httpd *server, int index);
 int initWebserver(httpd **ppserver, char *address, int port);
 int endWebserver(httpd *pserver);

@@ -294,8 +294,6 @@ static void loopMain(void)
       exit(1);
     }
     debug(LOG_DEBUG, "Create tun-gateway name of %s with fd %d", gwOptions->tundevname, homeGateway->gwTun.fd);
-//    register_fd_cleanup_on_fork(homeGateway->gw_tun.fd);
-
 
 	/* Create an instance of IP handler*/
 	if (initIpHandling(homeGateway)) {
@@ -446,7 +444,37 @@ int main(int argc, char **argv)
     return (0);                 /* never reached */
 }
 
+/** Clean up all the registered fds. Frees the list as it goes.
+ * XXX This should only be run by CHILD processes.
+ */
+void closeFds()
+{
+	if (homeGateway)
+	{
+		net_close(&homeGateway->gwTun);
+		debug(LOG_INFO, "Closing gateway tun devive %s", homeGateway->gwTun.devname);
 
+		for (int i=0; i < MAX_RAWIF; i++) {
+
+		      if(&homeGateway->rawIf[i] == NULL){
+					debug(LOG_ERR, "Multi LAN raw if No. %d error %s", i, strerror(errno));
+					exit(0);
+		      }
+		      dev_set_flags(homeGateway->rawIf[i].devname,
+		    		  homeGateway->rawIf[i].devflags);
+		      net_close(&homeGateway->rawIf[i]);
+		      debug(LOG_INFO, "Closing rawIf %s with idx = %d", homeGateway->rawIf[i].devname, i);
+		}
+	}
+
+	if(webServer){
+		if(webServer->serverSock > 0){
+			close(webServer->serverSock);
+			webServer->serverSock = 0;
+		}
+	}
+
+}
 
 /** Exits cleanly after cleaning up the firewall.
  *  Use this function anytime you need to exit after firewall initialization.
@@ -470,23 +498,10 @@ void termination_handler(int s)
        pthread_kill(tid_ping, SIGKILL);
    }
 
+   closeFds();
+
 	if (homeGateway)
 	{
-		net_close(&homeGateway->gwTun);
-		debug(LOG_INFO, "Closing gateway tun devive %s", homeGateway->gwTun.devname);
-
-		for (int i=0; i < MAX_RAWIF > 0; i++) {
-
-		      if(&homeGateway->rawIf[i] == NULL){
-					debug(LOG_ERR, "Multi LAN raw if No. %d error %s", i, strerror(errno));
-					exit(0);
-		      }
-		      dev_set_flags(homeGateway->rawIf[i].devname,
-		    		  homeGateway->rawIf[i].devflags);
-		      net_close(&homeGateway->rawIf[i]);
-		      debug(LOG_INFO, "Closing rawIf %s with idx = %d", homeGateway->rawIf[i].devname, i);
-		}
-
 		if (homeGateway->hash) free(homeGateway->hash);
 		for (conn = homeGateway->firstfreeconn; conn; ) {
 		    c = conn;

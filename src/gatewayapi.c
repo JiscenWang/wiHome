@@ -358,6 +358,7 @@ int initGateway(struct gateway_t **ppgateway) {
   }
 
   openTun(&home_gateway->gwTun);
+
   net_set_address(&home_gateway->gwTun, &gwOptions->tundevip, &gwOptions->tundevip, &gwOptions->netmask);
   debug(LOG_DEBUG, "Set gateway IP address %s", inet_ntoa(gwOptions->tundevip));
 

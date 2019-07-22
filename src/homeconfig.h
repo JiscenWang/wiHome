@@ -8,6 +8,12 @@
 #include <arpa/inet.h>
 #include "homenet.h"
 
+#define WH_SUCC  0    //successful result
+#define WH_FAIL  -1
+
+#define WH_GOON  0   //continue
+#define WH_STOP  -1
+
 
 /** system configuration values */
 #ifndef SYSCONFDIR

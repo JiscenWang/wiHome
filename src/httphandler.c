@@ -98,15 +98,15 @@ http_callback_404(httpd * webserver, request * r, int error_code)
 }
 
 static void
-http_callback_jmodule(httpd *webserver, request * r)
+http_callback_wihome(httpd *webserver, request * r)
 {
-    send_http_page(r, "J-Module", "Please use the menu to navigate the features of this J-Module installation.");
+    send_http_page(r, "Wifi Home", "Please use the menu to navigate the features of Wifi Home Gateway installation.");
 }
 
 static void
 http_callback_about(httpd * webserver, request * r)
 {
-    send_http_page(r, "About J-Module", "This is J-Module version <strong>" VERSION "</strong>");
+    send_http_page(r, "About Wifi Home", "This is Wifi Home Gateway version <strong>" VERSION "</strong>");
 }
 
 
@@ -124,6 +124,7 @@ send_http_page(request * r, const char *title, const char *message)
         debug(LOG_CRIT, "Failed to open HTML message file %s: %s", gwOptions->htmlmsgfile, strerror(errno));
         return;
     }
+    debug(LOG_DEBUG, "send_http_page from html file %s with fd %d", gwOptions->htmlmsgfile, fd);
 
     if (fstat(fd, &stat_info) == -1) {
         debug(LOG_CRIT, "Failed to stat HTML message file: %s", strerror(errno));
@@ -131,7 +132,14 @@ send_http_page(request * r, const char *title, const char *message)
         return;
     }
     // Cast from long to unsigned int
-    buffer = (char *)safe_malloc((size_t) stat_info.st_size + 1);
+//    buffer = (char *)safe_malloc((size_t) stat_info.st_size + 1);
+    buffer = malloc((size_t) stat_info.st_size + 1);
+    if (!buffer) {
+        debug(LOG_CRIT, "Failed to malloc %d bytes of memory: %s.  Bailing out", (size_t) stat_info.st_size + 1, strerror(errno));
+        exit(1);
+    }
+    memset(buffer, 0, (size_t) stat_info.st_size + 1);
+    debug(LOG_DEBUG, "Read html file to buffer %p with size %d", buffer, (size_t) stat_info.st_size + 1);
     written = read(fd, buffer, (size_t) stat_info.st_size);
     if (written == -1) {
         debug(LOG_CRIT, "Failed to read HTML message file: %s", strerror(errno));
@@ -153,8 +161,7 @@ send_http_page(request * r, const char *title, const char *message)
 /** Main request handling thread.
 @param args Two item array of void-cast pointers to the httpd and request struct
 */
-static void
-thread_httpd(void *args)
+void thread_httpd(void *args)
 {
 	void	**params;
 	httpd	*webserver;
@@ -224,11 +231,18 @@ int rcvHttpConnection(httpd *server, int index){
         debug(LOG_INFO, "Received connection from %s, spawning worker thread", r->clientAddr);
         /* The void**'s are a simulation of the normal C
          * function calling sequence. */
-        params = safe_malloc(2 * sizeof(void *));
-        *params = server;
+//        params = safe_malloc(2 * sizeof(void *));
+        params= malloc(2 * sizeof(void *));
+        if (!params) {
+            debug(LOG_CRIT, "Failed to malloc %d bytes of memory: %s.  Bailing out", 2*sizeof(void *), strerror(errno));
+            exit(1);
+        }
+        memset(params, 0, 2 * sizeof(void *));
         *(params + 1) = r;
+        *params = server;
 
         result = pthread_create(&tid, NULL, (void *)thread_httpd, (void *)params);
+
         if (result != 0) {
             debug(LOG_ERR, "FATAL: Failed to create a new thread (httpd) - exiting");
             termination_handler(0);
@@ -254,16 +268,19 @@ int initWebserver(httpd **ppserver, char *address, int port){
     debug(LOG_NOTICE, "Created web server on %s:%d with socket %d", address, port, pserver->serverSock);
 
     FILE *logfp = fopen("/tmp/access.log", "a" );
-    httpdSetAccessLog ( pserver, logfp );
+    httpdSetAccessLog(pserver, logfp);
+
+    FILE *errfp = fopen("/tmp/error.log", "a" );
+    httpdSetErrorLog(pserver, errfp);
 
     /*Jerome TBD define new Html*/
     debug(LOG_DEBUG, "Assigning callbacks to web server");
-    httpdAddCContent(pserver, "/", "jmodule", 0, NULL, http_callback_jmodule);
-    httpdAddCContent(pserver, "/jmodule", "", 0, NULL, http_callback_jmodule);
-    httpdAddCContent(pserver, "/jmodule", "about", 0, NULL, http_callback_about);
+    httpdAddCContent(pserver, "/", "wihome", 0, NULL, http_callback_wihome);
+    httpdAddCContent(pserver, "/wihome", "", 0, NULL, http_callback_wihome);
+    httpdAddCContent(pserver, "/wihome", "about", 0, NULL, http_callback_about);
 
     httpdSetFileBase(pserver,"/home/jerome/files");
-    httpdAddFileContent(pserver, "/jmodule", "download", 0, NULL,"tryit.mp3");
+    httpdAddFileContent(pserver, "/wihome", "download", 0, NULL,"tryit.mp3");
 
     httpdSetErrorFunction(pserver, 404, http_callback_404);
 
@@ -273,10 +290,6 @@ int initWebserver(httpd **ppserver, char *address, int port){
 
 /* closing the web server */
 int endWebserver(httpd *pserver){
-
-	if(pserver->serverSock > 0){
-		close(pserver->serverSock);
-		pserver->serverSock = 0;
-	}
 	httpdDestroy(pserver);
+	return WH_GOON;
 }

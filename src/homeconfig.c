@@ -94,7 +94,7 @@ void initOptions(void)
     //config.external_interface = NULL;  /*External IF must be set later in the conf file*/
     //config.internalif = NULL;	/*Internal IF must be set later in the conf file*/
 
-    debug(LOG_DEBUG, "Setting default config parameters of conf file %s and html file",
+    debug(LOG_DEBUG, "Setting default config parameters of conf file %s and html file %s",
     		DEFAULT_CONFIGFILE, DEFAULT_HTMLMSGFILE);
     gwOptions.configfile = safe_strdup(DEFAULT_CONFIGFILE);
     gwOptions.htmlmsgfile = safe_strdup(DEFAULT_HTMLMSGFILE);
@@ -145,6 +145,7 @@ void initOptions(void)
     debugconf.syslog_facility = DEFAULT_SYSLOG_FACILITY;
     debugconf.log_syslog = DEFAULT_LOG_SYSLOG;
 }
+
 
 /** @internal
 Parses a single token from the config file

@@ -53,6 +53,7 @@ struct gateway_t {
 	struct ipconnections_t *lastusedconn;  /* Last used in linked list */
 };
 
+void closeFds();
 void termination_handler(int s);
 
 #endif                          /* _GATEWAY_H_ */

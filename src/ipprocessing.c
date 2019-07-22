@@ -336,7 +336,7 @@ int ip_newIp(struct ippool_t *this,
     /* If IP was already allocated we can not use it */
     if ((p2) && (p2->in_use)) {
       p2 = NULL;
-      return -1;
+      return WH_FAIL;
     }
   }
 
@@ -344,7 +344,7 @@ int ip_newIp(struct ippool_t *this,
   if (!p2) {
     if (!this->firstdyn) {
       debug(LOG_ERR, "No more dynamic addresses available");
-      return -1;
+      return WH_FAIL;
     }
     else {
       p2 = this->firstdyn;
@@ -369,11 +369,11 @@ int ip_newIp(struct ippool_t *this,
     p2->in_use = 1;
 
     *member = p2;
-/*Jerome TBD for print if necessery*/
-//    ippool_print(0, this);
-    return 0; /* Success */
+    /*Jerome TBD for print if necessery*/
+    //    ippool_print(0, this);
+    return WH_SUCC; /* Success */
   }
-  return -1;
+  return WH_FAIL;
 }
 
 
@@ -970,7 +970,8 @@ int raw_rcvIp(struct rawif_in *ctx, uint8_t *pack, size_t len) {
    *  Check to see if we know MAC address
    */
   if (!getMacHash(this, &conn, pack_ethh->src)) {
-    debug(LOG_DEBUG, "IP handler: MAC Address "MAC_FMT" found", MAC_ARG(pack_ethh->src));
+    debug(LOG_DEBUG, "IP handler: MAC Address "MAC_FMT" found with IP %s",
+    		MAC_ARG(pack_ethh->src), inet_ntoa(conn->hisip));
   } else {
 	  /*First connection with home gateway, with(statically set) or without(dynamically) IP address*/
 	  struct in_addr reqaddr;
@@ -978,7 +979,7 @@ int raw_rcvIp(struct rawif_in *ctx, uint8_t *pack, size_t len) {
 
 	  /* Allocate new connection without recording IP address*/
 	  if (ip_newConnection(this, &conn, pack_ethh->src)) {
-		  debug(LOG_DEBUG, "dropping packet; out of connections");
+		  debug(LOG_DEBUG, "dropping packet; fail of adding connections");
 		  return 0; /* Out of connections */
 	  }
 	  conn->rawIdx = rawifindex;
@@ -992,7 +993,7 @@ int raw_rcvIp(struct rawif_in *ctx, uint8_t *pack, size_t len) {
 	    		MAC_ARG(pack_ethh->src));
 	  }
 
-	  /*Recording IP of new connection which could be NULL*/
+	  /*Recording IP of new connection which could be 0.0.0.0*/
 	  conn->hisip.s_addr = reqaddr.s_addr;
   }
 
@@ -1011,7 +1012,7 @@ int raw_rcvIp(struct rawif_in *ctx, uint8_t *pack, size_t len) {
   if (is_dhcp) {
     debug(LOG_DEBUG, "IP handler: new dhcp/bootps request being processed for "MAC_FMT"",
                MAC_ARG(pack_ethh->src));
-    	dhcpHandler(ctx, pack, len);
+    dhcpHandler(ctx, pack, len);
     return 0;
   }
   /*Ended for DHCP (BOOTPS) packets */
@@ -1177,42 +1178,32 @@ int ip_newConnection(struct gateway_t *this, struct ipconnections_t **conn,
 /* DHCP allocate new IP address */
 int ip_allocClientIP(struct ipconnections_t *conn, struct in_addr *addr,
 		    uint8_t *dhcp_pkt, size_t dhcp_len) {
-
-	s_gwOptions *gwOptions = get_gwOptions();
-	struct gateway_t *pgateway = conn->parent;
+  s_gwOptions *gwOptions = get_gwOptions();
+  struct gateway_t *pgateway = conn->parent;
   struct ippoolm_t *ipm = 0;
 
-
   debug(LOG_DEBUG, "DHCP request for MAC "MAC_FMT" with IP address %s",
-		  MAC_ARG(conn->hismac),
+		 MAC_ARG(conn->hismac),
          addr ? inet_ntoa(*addr) : "n/a");
 
   struct in_addr reqip;
   reqip.s_addr = addr ? addr->s_addr : 0;
 
   if (conn->uplink) {
-
     /*  IP Address is already known and allocated.*/
     ipm = (struct ippoolm_t*) conn->uplink;
+  }
+  else {
+	/* Allocate IP address */
+	if (ip_newIp(pgateway->ippool, &ipm, &reqip) == WH_FAIL) {
+		debug(LOG_ERR, "Failed to allocate either static or dynamic IP address");
+		return WH_FAIL;
+	}
 
-  } else {
+	debug(LOG_DEBUG, "Successfully allocate client MAC="MAC_FMT" assigned IP %s" ,
+			MAC_ARG(conn->hismac), inet_ntoa(ipm->addr));
 
-	    if (conn->hisip.s_addr) {
-	      debug(LOG_WARNING, "Requested IP address when already allocated (hisip %s)",
-	             inet_ntoa(conn->hisip));
-	      reqip.s_addr = conn->hisip.s_addr;
-	    }
-
-	    /* Allocate IP address */
-	    if (ip_newIp(pgateway->ippool, &ipm, &reqip)) {
-	        debug(LOG_ERR, "Failed to allocate either static or dynamic IP address");
-	        return -1;
-	    }
-
-	    debug(LOG_DEBUG, "Successfully allocate client MAC="MAC_FMT" assigned IP %s" ,
-	             MAC_ARG(conn->hismac), inet_ntoa(conn->hisip));
-
-	    conn->uplink = ipm;
+	conn->uplink = ipm;
   }
 
    if (ipm) {
@@ -1221,13 +1212,13 @@ int ip_allocClientIP(struct ipconnections_t *conn, struct in_addr *addr,
 	  conn->ourip.s_addr = gwOptions->tundevip.s_addr;
 	  ipm->peer = conn;
    }else{
-	   return -1;
+	   return WH_FAIL;
    }
 
   if (conn->authstate != AUTH_CLIENT)
 	  conn->authstate = NEW_CLIENT;
 
-  return 0;
+  return WH_SUCC;
 }
 
 

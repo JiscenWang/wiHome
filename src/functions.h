@@ -7,6 +7,10 @@
 
 #ifndef SRC_FUNCTIONS_H_
 #define SRC_FUNCTIONS_H_
+#include <stdarg.h>             /* For va_list */
+#include <sys/types.h>          /* For fork */
+#include <unistd.h>             /* For fork */
+#include <sys/socket.h>
 
 void save_pid_file(const char *pf);
 

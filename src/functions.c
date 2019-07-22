@@ -37,6 +37,7 @@
 
 extern struct timespec mainclock;
 
+
 /*
  * Save pid of this gateway in pid file
  * @param 'pf' as string, it is the pid file absolutely path
@@ -136,7 +137,7 @@ safe_fork(void)
         exit(1);
     } else if (result == 0) {
         /* I'm the child - do some cleanup */
-    	termination_handler(1);
+    	closeFds();
     }
 
     return result;
