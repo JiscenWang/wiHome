@@ -1076,12 +1076,13 @@ int raw_rcvIp(struct rawif_in *ctx, uint8_t *pack, size_t len) {
   if (pack_iph->protocol == PKT_IP_PROTO_UDP &&
 		  pack_udph->dst == htons(DHCP_DNS)) {
 	  debug(LOG_DEBUG, "A DNS request!");
-	  if (!dnsHandler(conn, pack, &len)) {
+	  if (dnsHandler(conn, pack, &len) == WH_GOON) {
+		  allowed = 1; /* Is allowed DNS */
+	  }else{
 		  /* Drop DNS if dhcp_dns returns 0*/
-	     debug(LOG_DEBUG, "A DNS is handled in dhcp_dns()!");
+	     debug(LOG_DEBUG, "A DNS is handled in dnsHandler()!");
 	     return 0;
 	  }
-	  allowed = 1; /* Is allowed DNS */
   }
   /* End of DNS handling part*/
 

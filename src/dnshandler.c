@@ -280,7 +280,7 @@ int dnsHandler(struct ipconnections_t *conn, uint8_t *pack, size_t *plen) {
   if (*plen < DHCP_DNS_HLEN + sizeofudp(pack)) {
 
     debug(LOG_DEBUG, "bad DNS packet of length %zu",   *plen);
-    return 0;
+    return WH_STOP;
 
   } else {
 
@@ -309,7 +309,7 @@ int dnsHandler(struct ipconnections_t *conn, uint8_t *pack, size_t *plen) {
     /* it was a response? shouldn't be */
 	if (((flags & 0x8000) >> 15) == 1) {
 		debug(LOG_DEBUG, "Dropping unexpected DNS response");
-		return 0;
+		return WH_STOP;
 	}
 
 	memset(q, 0, sizeof(q));
@@ -318,7 +318,8 @@ int dnsHandler(struct ipconnections_t *conn, uint8_t *pack, size_t *plen) {
 		if (copyDnsRsp(conn, &dptr, &dlen,
 				(uint8_t *)dnsp, olen, q, sizeof(q))) {
 			syslog(LOG_WARNING, "dropping malformed DNS");
-			return sendDnsNak(conn, pack, *plen);
+			sendDnsNak(conn, pack, *plen);
+			return WH_STOP;
 		}
 	}
 
@@ -333,9 +334,9 @@ int dnsHandler(struct ipconnections_t *conn, uint8_t *pack, size_t *plen) {
 
         if (match) {
         	sendDnsRsp(conn, pack, *plen);
-          return 0;
+          return WH_STOP;
         }
       }
-      return 1;
+      return WH_GOON;
   }
 }
