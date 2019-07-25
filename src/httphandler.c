@@ -54,7 +54,7 @@ http_callback_302(httpd *webserver, request * r, int error_code)
 {
 	s_gwOptions *gwOptions = get_gwOptions();
     char *url = NULL;
-    safe_asprintf(&url, "http://%s", gwOptions->redirhost);
+    safe_asprintf(&url, "http://%s/", gwOptions->redirhost);
     http_send_redirect(r, url, "Redirect to portal page!");
     free(url);
 	return;

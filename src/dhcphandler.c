@@ -399,7 +399,7 @@ int informDHCP(struct ipconnections_t *conn, uint8_t *pack, size_t len){
 	}
 	debug(LOG_DEBUG, "Client inform with IP address %s", inet_ntoa(addr));
 
-	/*But if requested IP address is wrong, renew it*/
+	/*But if requested IP address is wrong, NACK it*/
 	if (addr.s_addr && ((addr.s_addr & gwOptions->netmask.s_addr)
 			!= (gwOptions->tundevip.s_addr& gwOptions->netmask.s_addr))) {
 		debug(LOG_DEBUG, "Client inform with IP with wrong net");
@@ -413,7 +413,7 @@ int informDHCP(struct ipconnections_t *conn, uint8_t *pack, size_t len){
 	    sendDhcpNak(conn, pack, len);
 	    return WH_STOP;
 	}
-	if (conn->hisip.s_addr){
+	if (!conn->hisip.s_addr){
 	    debug(LOG_DEBUG, "Failed to allocate an IP to client, sending NAK");
 	    sendDhcpNak(conn, pack, len);
 	    return WH_STOP;
