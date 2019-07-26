@@ -37,13 +37,14 @@ http_send_redirect(request * r, const char *url, const char *text)
     /* Re-direct them to auth server */
     debug(LOG_DEBUG, "Redirecting client browser to %s", url);
     safe_asprintf(&header, "Location: %s", url);
-    safe_asprintf(&response, "302 %s\n", text ? text : "Redirecting");
+    safe_asprintf(&response, "302 %s\r\n", text ? text : "Redirecting");
     httpdSetResponse(r, response);
     httpdAddHeader(r, header);
     free(response);
     free(header);
     safe_asprintf(&message, "Please <a href='%s'>click here</a>.", url);
-    send_http_page(r, text ? text : "Redirection to message", message);
+    httpdSendHeaders(r);
+//    send_http_page(r, text ? text : "Redirection to message", message);
     free(message);
 }
 
@@ -54,7 +55,8 @@ http_callback_302(httpd *webserver, request * r, int error_code)
 {
 	s_gwOptions *gwOptions = get_gwOptions();
     char *url = NULL;
-    safe_asprintf(&url, "http://%s/", gwOptions->redirhost);
+    /*Jerome add here \r to \r\n in httpdAddHeader*/
+    safe_asprintf(&url, "http://%s/\r", gwOptions->redirhost);
     http_send_redirect(r, url, "Moved Temporarily");
     free(url);
 	return;
