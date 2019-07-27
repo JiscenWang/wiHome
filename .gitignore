@@ -69,3 +69,8 @@ dkms.conf
 /stamp-h1
 /next
 /config.h.in~
+
+# 只忽略dbg目录，不忽略dbg文件
+
+autom4te.cache/
+config/
