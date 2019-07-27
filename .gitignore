@@ -74,3 +74,4 @@ dkms.conf
 
 autom4te.cache/
 config/
+.settings/
