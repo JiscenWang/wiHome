@@ -36,7 +36,7 @@ http_send_redirect(request * r, const char *url, const char *text)
     char *response = NULL;
     /* Re-direct them to auth server */
     debug(LOG_DEBUG, "Redirecting client browser to %s", url);
-    safe_asprintf(&header, "Location: %s", url);
+    safe_asprintf(&header, "Location: %s\r\n", url);
     safe_asprintf(&response, "302 %s\r\n", text ? text : "Redirecting");
     httpdSetResponse(r, response);
     httpdAddHeader(r, header);
@@ -56,7 +56,7 @@ http_callback_302(httpd *webserver, request * r, int error_code)
 	s_gwOptions *gwOptions = get_gwOptions();
     char *url = NULL;
     /*Jerome add here \r to \r\n in httpdAddHeader*/
-    safe_asprintf(&url, "http://%s/\r", gwOptions->redirhost);
+    safe_asprintf(&url, "http://%s/", gwOptions->redirhost);
     http_send_redirect(r, url, "Moved Temporarily");
     free(url);
 	return;

@@ -402,7 +402,7 @@ _httpd_sendHeaders(request * r, int contentLength, int modTime)
     /*Jerome change it to \r\n*/
     _httpd_net_write(r->clientSock, "\r\n", 2);
 
-    _httpd_net_write(r->clientSock, "Connection: close\n", 18);
+    _httpd_net_write(r->clientSock, "Connection: close\r\n", 19);
     _httpd_net_write(r->clientSock, "Content-Type: ", 14);
     _httpd_net_write(r->clientSock, r->response.contentType, strlen(r->response.contentType));
     /*Jerome change it to \r\n*/
@@ -578,6 +578,7 @@ _httpd_sendFile(httpd * server, request * r, char *path)
             strcpy(r->response.contentType, "image/png");
         if (strcasecmp(suffix, ".css") == 0)
             strcpy(r->response.contentType, "text/css");
+        /*Jerome add for stream transmission data of other files no listed above*/
         if ((strcasecmp(suffix, ".htm") != 0) && (strcasecmp(suffix, ".html") != 0))
         	strcpy(r->response.contentType, "application/octet-stream");
     }

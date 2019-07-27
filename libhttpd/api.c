@@ -381,7 +381,7 @@ httpdReadRequest(httpd * server, request * r)
     /*
      ** Setup for a standard response
      */
-    strcpy(r->response.headers, "Server: Hughes Technologies Embedded Server\r\n");
+    strcpy(r->response.headers, "Server: Wifi Home Embedded Server\r\n");
     strcpy(r->response.contentType, "text/html");
     strcpy(r->response.response, "200 Output Follows\r\n");
     r->response.headersSent = 0;
@@ -934,6 +934,9 @@ httpdSendFile(httpd * server, request * r, const char *path)
             strcpy(r->response.contentType, "image/png");
         if (strcasecmp(suffix, ".css") == 0)
             strcpy(r->response.contentType, "text/css");
+        /*Jerome add for stream transmission data of other files no listed above*/
+        if ((strcasecmp(suffix, ".htm") != 0) && (strcasecmp(suffix, ".html") != 0))
+                	strcpy(r->response.contentType, "application/octet-stream");
     }
     if (stat(path, &sbuf) < 0) {
         _httpd_send404(server, r);

@@ -793,8 +793,8 @@ int checkHttpDnat(struct ipconnections_t *conn, uint8_t *pack,
   }
 
   /* If destination was in local net, no need DNAT*/
-  if ((iph->daddr & this->netmask.s_addr)
-	 		  == (this->ourip.s_addr & this->netmask.s_addr)) {
+  if ((iph->daddr != this->ourip.s_addr) &&
+		  ((iph->daddr & this->netmask.s_addr) == (this->ourip.s_addr & this->netmask.s_addr))) {
     return 0;
   }
 
