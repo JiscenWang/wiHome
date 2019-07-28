@@ -17,11 +17,11 @@
 
 /** system configuration values */
 #ifndef SYSCONFDIR
-#define DEFAULT_CONFIGFILE "/etc/WirelessHome.conf"
-#define DEFAULT_HTMLMSGFILE "/etc/WirelessHome.html"
+#define DEFAULT_CONFIGFILE "/etc/wiHome.conf"
+#define DEFAULT_HTMLMSGFILE "/etc/wiHome.html"
 #else
-#define DEFAULT_CONFIGFILE SYSCONFDIR"/WirelessHome.conf"
-#define DEFAULT_HTMLMSGFILE SYSCONFDIR"/WirelessHome.html"
+#define DEFAULT_CONFIGFILE SYSCONFDIR"/wiHome.conf"
+#define DEFAULT_HTMLMSGFILE SYSCONFDIR"/wiHome.html"
 #endif
 
 #define DEFAULT_WHOME_SOCK "/tmp/whome.sock"
@@ -40,7 +40,7 @@
 #define DEFAULT_DAEMON 1
 
 #define DEFAULT_HTTPDMAXCONN 10
-#define DEFAULT_HTTPDNAME "WirelessHome"
+#define DEFAULT_HTTPDNAME "wiHome"
 #define DEFAULT_CLIENTTIMEOUT 5
 #define DEFAULT_CHECKINTERVAL 60
 

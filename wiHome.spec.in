@@ -1,6 +1,6 @@
 # $Id$
 
-%define name whome
+%define name wihome
 %define lib_name libhttpd
 %define version @VERSION@
 %define release 1mdk
@@ -29,7 +29,7 @@ mkdir -p $RPM_BUILD_ROOT%{_prefix}
 
 # Will this overide previous config file?
 mkdir -p $RPM_BUILD_ROOT/etc
-cp WirelessHome.conf $RPM_BUILD_ROOT/etc
+cp wiHome.conf $RPM_BUILD_ROOT/etc
 
 %makeinstall
 
@@ -47,7 +47,7 @@ rm -rf $RPM_BUILD_ROOT
 %files
 %defattr(-,root,root,0755)
 %doc AUTHORS COPYING ChangeLog INSTALL NEWS README FAQ doc/html
-%config /etc/WirelessHome.conf 
+%config /etc/wiHome.conf 
 %{_bindir}/*
 %{_libdir}/*.a
 %{_libdir}/*.la

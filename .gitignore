@@ -63,8 +63,8 @@ dkms.conf
 /libtool
 /Makefile
 /Makefile.in
-/WirelessHome.html
-/WirelessHome.spec
+/wiHome.html
+/wiHome.spec
 /config.h
 /stamp-h1
 /next
