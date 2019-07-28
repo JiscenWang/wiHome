@@ -56,7 +56,7 @@ http_callback_302(httpd *webserver, request * r, int error_code)
 	s_gwOptions *gwOptions = get_gwOptions();
     char *url = NULL;
     /*Jerome add here \r to \r\n in httpdAddHeader*/
-    safe_asprintf(&url, "http://%s/", gwOptions->redirhost);
+    safe_asprintf(&url, "http://%s//wihome", gwOptions->redirhost);
     http_send_redirect(r, url, "Moved Temporarily");
     free(url);
 	return;
@@ -87,7 +87,8 @@ http_callback_404(httpd * webserver, request * r, int error_code)
         char *buf;
         safe_asprintf(&buf,
                       "<p>Please read the indication to be able to reaching the Internet.</p>"
-                      "<p>If you want to have the right to access the Internet. Please install the application on your computer, pad or mobile phone. And then apply the right from the Wifi spot owner.</p>"
+                      "<p>If you want to have the right to access the Internet.</p>"
+                      "<p>Please install the application on your computer, pad or mobile phone. And then apply the right from the Wifi spot owner.</p>"
                       "<p>After the Wifi spot owner agreed, he/she will let you online.</p>"
                       "<p>In a while please <a href='%s'>click here</a> to try your request again.</p>", tmp_url);
 
@@ -102,13 +103,30 @@ http_callback_404(httpd * webserver, request * r, int error_code)
 static void
 http_callback_wihome(httpd *webserver, request * r)
 {
-    send_http_page(r, "Wifi Home", "Please use the menu to navigate the features of Wifi Home Gateway installation.");
+	char tmp_url[MAX_BUF], *url, *mac;
+	s_gwOptions *gwOptions = get_gwOptions();
+    memset(tmp_url, 0, sizeof(tmp_url));
+
+    snprintf(tmp_url, (sizeof(tmp_url) - 1), "http://%s%s%s%s",
+             r->request.host, r->request.path, r->request.query[0] ? "?" : "", r->request.query);
+    url = httpdUrlEncode(tmp_url);
+
+	char *buf;
+	safe_asprintf(&buf,
+			"<p>Please read the indication to be able to reaching the Internet.</p>"
+			"<p>If you want to have the right to access the Internet. Please install the application on your computer, pad or mobile phone. And then apply the right from the Wifi spot owner.</p>"
+			"<p>After the Wifi spot owner agreed, he/she will let you online.</p>"
+			"<p>In a while please <a href='%s'>click here</a> to try your request again.</p>", tmp_url);
+
+	send_http_page(r, "Wireless Home", buf);
+	free(buf);
+    free(url);
 }
 
 static void
 http_callback_about(httpd * webserver, request * r)
 {
-    send_http_page(r, "About Wifi Home", "This is Wifi Home Gateway version <strong>" VERSION "</strong>");
+    send_http_page(r, "About Wireless Home", "This is Wireless Home Gateway version <strong>" VERSION "</strong>");
 }
 
 
@@ -281,10 +299,11 @@ int initWebserver(httpd **ppserver, char *address, int port){
     httpdAddCContent(pserver, "/wihome", "", 0, NULL, http_callback_wihome);
     httpdAddCContent(pserver, "/wihome", "about", 0, NULL, http_callback_about);
 
-    httpdSetFileBase(pserver,"/home/jerome/files");
-    httpdAddFileContent(pserver, "/wihome", "download", 0, NULL,"tryit.mp3");
+    httpdSetFileBase(pserver,"/usr/local/etc/wiHome_files");
+    httpdAddWildcardContent(pserver,"/wiHome_files", NULL, "");
+    httpdAddFileContent(pserver, "/wihome", "download", 0, NULL,"/etc/tryit.mp3");
 
-    httpdSetErrorFunction(pserver, 404, http_callback_404);
+//    httpdSetErrorFunction(pserver, 404, http_callback_404);
 
     *ppserver = pserver;
     return 0;

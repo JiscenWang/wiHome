@@ -1,107 +1,49 @@
-<html>
-<head>
-<title>$title</title>
-<meta HTTP-EQUIV='Pragma' CONTENT='no-cache'>
-
-<style>
-body {
-  margin: 10px 60px 0 60px; 
-  font-family : bitstream vera sans, sans-serif;
-  color: #46a43a;
-}
-
-a {
-  color: #46a43a;
-}
-
-a:active {
-  color: #46a43a;
-}
-
-a:link {
-  color: #46a43a;
-}
-
-a:visited {
-  color: #46a43a;
-}
-
-#header {
-  height: 30px;
-  background-color: #B4F663;
-  padding: 20px;
-  font-size: 20pt;
-  text-align: center;
-  border: 2px solid #46a43a;
-  border-bottom: 0;
-}
-
-#header h2 {
-  margin: 0pt;
-}
-
-#menu {
-  width: 200px;
-  float: right;
-  background-color: #B4F663;
-  border: 2px solid #46a43a;
-  font-size: 80%;
-  min-height: 300px;
-}
-
-#menu h2 {
-  margin: 0;
-  background-color: #46a43a;
-  text-align: center;
-  color: #B4F663;
-}
-
-#copyright {
-}
-
-#content {
-  padding: 20px;
-  border: 2px solid #46a43a;
-  min-height: 300px;
-}
-</style>
-
+<!DOCTYPE html>
+<html lang="no"><head>
+<meta http-equiv="content-type" content="text/html; charset=UTF-8">
+	<meta charset="utf-8">
+	<title>$title</title>
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<link href="wiHome_files/app.css" rel="stylesheet">
+	<link href="wiHome_files/wifi.css" rel="stylesheet">
+	<script src="wiHome_files/jquery-1.js"></script>
+	<script src="wiHome_files/icomera_user.js"></script>
 </head>
 
-<body>
+<body class="wifi-main">
 
-<div id="header">
-    <h2>$title</h2>
-</div>
+	<div class="wifi-background"></div>
 
-<div id="menu">
+	<div class="wifi-container user-offline" style="">
+		<div class="wifi-information" data-slot="Wifi Welcome"><p></p><p>$message</p></div>
+
+		<div class="wifi-footer">
+			<form class="wifi-form" method="post" action="http://redirpage.home.fun">
+				<input type="hidden" name="method" value="login">
+				<input type="hidden" name="username" value="">
+				<input type="hidden" name="password" value="">
+				<input type="hidden" name="url" value="http://redirpage.home.fun">
+				<input type="hidden" name="onerror" value="http://redirpage.home.fun">
+				<button type="submit" class="wifi-connect wifi-btn user-offline">
+					<span class="btn-text" data-slot="Connect to Internet">点击连接上网</span>
+				</button>
+			</form>
+
+			<div class="wifi-subnote">
+				<p data-slot="Terms and conditions text">$nodeID</p>
+				<p><a href="http://redirpage.home.fun/wihome/about" data-slot="About">About Wifi Home</a></p>
+			</div>
+		</div>
+	</div>
+
+	<div class="wifi-container wifi-connected user-online" style="display:none">
+		<div class="wifi-information" data-slot="Wifi Connected"><p>已连接.</p></div>
+		<div class="wifi-banner" data-module="Hideable section">
+            </a>
+		</div>
+	</div>
+
+	
 
 
-    <h2>Info</h2>
-    <ul>
-    <li>Version: @WIFIDOG_VERSION@
-
-    <li>Node ID: $nodeID
-    </ul>
-    <br>
-
-    <h2>Menu</h2>
-    <ul>
-    <li><a href='/jmodule/about'>About JModule</a>
-    <li><a href='http://www.home.hun'>Your homepage</a>
-    <li><a href='/jmodule/download'>Download TryIt</a>
-    </ul>
-</div>
-
-<div id="content">
-<h2>$message</h2>
-</div>
-
-<div id="copyright">
-Copyright (C) 2004-2015.  This software is released under the GNU GPL license.
-</div>
-
-
-</body>
-</html>
-
+</body></html>

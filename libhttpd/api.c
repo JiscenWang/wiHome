@@ -36,11 +36,15 @@
 #include <netdb.h>
 #include <sys/socket.h>
 #include <netdb.h>
+
+#include <syslog.h>
+#include <errno.h>
 #endif
 
 #include "config.h"
 #include "httpd.h"
 #include "httpd_priv.h"
+#include "../src/debug.h"
 
 #ifdef HAVE_STDARG_H
 #include <stdarg.h>
@@ -809,26 +813,31 @@ httpdProcessRequest(httpd * server, request * r)
     r->response.responseLength = 0;
     strncpy(dirName, httpdRequestPath(r), HTTP_MAX_URL);
     dirName[HTTP_MAX_URL - 1] = 0;
+    debug(LOG_DEBUG, "Client request full URL path %s", dirName);
     cp = strrchr(dirName, '/');
     if (cp == NULL) {
         /* printf("Invalid request path '%s'\n", dirName); */
         return;
     }
     strncpy(entryName, cp + 1, HTTP_MAX_URL);
+    debug(LOG_DEBUG, "Client request URL entry %s", entryName);
     entryName[HTTP_MAX_URL - 1] = 0;
     if (cp != dirName)
         *cp = 0;
     else
         *(cp + 1) = 0;
+    debug(LOG_DEBUG, "Client request URL directory %s", dirName);
     dir = _httpd_findContentDir(server, dirName, HTTP_FALSE);
     if (dir == NULL) {
         _httpd_send404(server, r);
+        debug(LOG_DEBUG, "cannot find directory %s", dirName);
         _httpd_writeAccessLog(server, r);
         return;
     }
     entry = _httpd_findContentEntry(r, dir, entryName);
     if (entry == NULL) {
         _httpd_send404(server, r);
+        debug(LOG_DEBUG, "cannot find entry %s", entryName);
         _httpd_writeAccessLog(server, r);
         return;
     }
@@ -838,6 +847,8 @@ httpdProcessRequest(httpd * server, request * r)
             return;
         }
     }
+
+    debug(LOG_DEBUG, "Entry type is %d", entry->type);
     switch (entry->type) {
     case HTTP_C_FUNCT:
     case HTTP_C_WILDCARD:
@@ -924,19 +935,22 @@ httpdSendFile(httpd * server, request * r, const char *path)
 
     suffix = strrchr(path, '.');
     if (suffix != NULL) {
-        if (strcasecmp(suffix, ".gif") == 0)
+        if (strcasecmp(suffix, ".gif") == 0){
             strcpy(r->response.contentType, "image/gif");
-        if (strcasecmp(suffix, ".jpg") == 0)
+        }else if (strcasecmp(suffix, ".jpg") == 0){
             strcpy(r->response.contentType, "image/jpeg");
-        if (strcasecmp(suffix, ".xbm") == 0)
+        }else if (strcasecmp(suffix, ".xbm") == 0){
             strcpy(r->response.contentType, "image/xbm");
-        if (strcasecmp(suffix, ".png") == 0)
-            strcpy(r->response.contentType, "image/png");
-        if (strcasecmp(suffix, ".css") == 0)
-            strcpy(r->response.contentType, "text/css");
-        /*Jerome add for stream transmission data of other files no listed above*/
-        if ((strcasecmp(suffix, ".htm") != 0) && (strcasecmp(suffix, ".html") != 0))
-                	strcpy(r->response.contentType, "application/octet-stream");
+        }else if (strcasecmp(suffix, ".png") == 0){
+        	strcpy(r->response.contentType, "image/png");
+        }else  if (strcasecmp(suffix, ".css") == 0){
+        	strcpy(r->response.contentType, "text/css");
+        }else if(strcasecmp(suffix, ".js") == 0){
+        	strcpy(r->response.contentType, "application/x-javascript");
+        }else if((strcasecmp(suffix, ".htm") != 0) && (strcasecmp(suffix, ".html") != 0)){
+            /*Jerome add for stream transmission data of other files no listed above*/
+        	strcpy(r->response.contentType, "application/octet-stream");
+        }
     }
     if (stat(path, &sbuf) < 0) {
         _httpd_send404(server, r);
