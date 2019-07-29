@@ -15,14 +15,63 @@
 #include <stdlib.h>
 #include <pthread.h>
 #include <time.h>
+#include <sys/stat.h>
+#include <unistd.h>
 
 #include "common.h"
 #include "httpd.h"
 #include "homeconfig.h"
 #include "debug.h"
-
+#include "functions.h"
+#include "gatewaymain.h"
 #include "../config.h"
 
+void send_http_page(request * r, const char *title, const char *message)
+{
+
+	s_gwOptions *gwOptions = get_gwOptions();
+    char *buffer;
+    struct stat stat_info;
+    int fd;
+    ssize_t written;
+
+    fd = open(gwOptions->htmlmsgfile, O_RDONLY);
+    if (fd == -1) {
+        debug(LOG_CRIT, "Failed to open HTML message file %s: %s", gwOptions->htmlmsgfile, strerror(errno));
+        return;
+    }
+    debug(LOG_DEBUG, "send_http_page from html file %s with fd %d", gwOptions->htmlmsgfile, fd);
+
+    if (fstat(fd, &stat_info) == -1) {
+        debug(LOG_CRIT, "Failed to stat HTML message file: %s", strerror(errno));
+        close(fd);
+        return;
+    }
+    // Cast from long to unsigned int
+//    buffer = (char *)safe_malloc((size_t) stat_info.st_size + 1);
+    buffer = malloc((size_t) stat_info.st_size + 1);
+    if (!buffer) {
+        debug(LOG_CRIT, "Failed to malloc %d bytes of memory: %s.  Bailing out", (size_t) stat_info.st_size + 1, strerror(errno));
+        exit(1);
+    }
+    memset(buffer, 0, (size_t) stat_info.st_size + 1);
+    debug(LOG_DEBUG, "Read html file to buffer %p with size %d", buffer, (size_t) stat_info.st_size + 1);
+    written = read(fd, buffer, (size_t) stat_info.st_size);
+    if (written == -1) {
+        debug(LOG_CRIT, "Failed to read HTML message file: %s", strerror(errno));
+        free(buffer);
+        close(fd);
+        return;
+    }
+    close(fd);
+
+    buffer[written] = 0;
+    httpdAddVariable(r, "title", title);
+    httpdAddVariable(r, "message", message);
+    httpdAddVariable(r, "nodeID", gwOptions->gw_id);
+    httpdOutput(r, buffer);
+    free(buffer);
+}
 
 /** @brief Sends a redirect to the web browser
  * @param r The request
@@ -127,54 +176,6 @@ static void
 http_callback_about(httpd * webserver, request * r)
 {
     send_http_page(r, "About Wireless Home", "This is Wireless Home Gateway version <strong>" VERSION "</strong>");
-}
-
-
-void
-send_http_page(request * r, const char *title, const char *message)
-{
-	s_gwOptions *gwOptions = get_gwOptions();
-    char *buffer;
-    struct stat stat_info;
-    int fd;
-    ssize_t written;
-
-    fd = open(gwOptions->htmlmsgfile, O_RDONLY);
-    if (fd == -1) {
-        debug(LOG_CRIT, "Failed to open HTML message file %s: %s", gwOptions->htmlmsgfile, strerror(errno));
-        return;
-    }
-    debug(LOG_DEBUG, "send_http_page from html file %s with fd %d", gwOptions->htmlmsgfile, fd);
-
-    if (fstat(fd, &stat_info) == -1) {
-        debug(LOG_CRIT, "Failed to stat HTML message file: %s", strerror(errno));
-        close(fd);
-        return;
-    }
-    // Cast from long to unsigned int
-//    buffer = (char *)safe_malloc((size_t) stat_info.st_size + 1);
-    buffer = malloc((size_t) stat_info.st_size + 1);
-    if (!buffer) {
-        debug(LOG_CRIT, "Failed to malloc %d bytes of memory: %s.  Bailing out", (size_t) stat_info.st_size + 1, strerror(errno));
-        exit(1);
-    }
-    memset(buffer, 0, (size_t) stat_info.st_size + 1);
-    debug(LOG_DEBUG, "Read html file to buffer %p with size %d", buffer, (size_t) stat_info.st_size + 1);
-    written = read(fd, buffer, (size_t) stat_info.st_size);
-    if (written == -1) {
-        debug(LOG_CRIT, "Failed to read HTML message file: %s", strerror(errno));
-        free(buffer);
-        close(fd);
-        return;
-    }
-    close(fd);
-
-    buffer[written] = 0;
-    httpdAddVariable(r, "title", title);
-    httpdAddVariable(r, "message", message);
-    httpdAddVariable(r, "nodeID", gwOptions->gw_id);
-    httpdOutput(r, buffer);
-    free(buffer);
 }
 
 

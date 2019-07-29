@@ -199,6 +199,8 @@ extern "C" {
 
     httpAcl *httpdAddAcl __ANSI_PROTO((httpd *, httpAcl *, char *, int));
 
+    void httpdDestroy __ANSI_PROTO((httpd *));
+
 /***********************************************************************
 ** Standard header file footer.  
 */
