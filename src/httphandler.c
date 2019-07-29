@@ -105,7 +105,7 @@ http_callback_302(httpd *webserver, request * r, int error_code)
 	s_gwOptions *gwOptions = get_gwOptions();
     char *url = NULL;
     /*Jerome add here \r to \r\n in httpdAddHeader*/
-    safe_asprintf(&url, "http://%s//wihome", gwOptions->redirhost);
+    safe_asprintf(&url, "http://%s/wihome", gwOptions->redirhost);
     http_send_redirect(r, url, "Moved Temporarily");
     free(url);
 	return;
