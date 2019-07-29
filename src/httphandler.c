@@ -300,8 +300,8 @@ int initWebserver(httpd **ppserver, char *address, int port){
     httpdAddCContent(pserver, "/wihome", "", 0, NULL, http_callback_wihome);
     httpdAddCContent(pserver, "/wihome", "about", 0, NULL, http_callback_about);
 
-    httpdSetFileBase(pserver,"/usr/local/etc/wiHome_files");
-    httpdAddWildcardContent(pserver,"/wiHome_files", NULL, "");
+    httpdSetFileBase(pserver,"/etc/wiHome_files");
+    httpdAddWildcardContent(pserver,"/etc/wiHome_files", NULL, "");
     httpdAddFileContent(pserver, "/wihome", "download", 0, NULL,"/etc/tryit.mp3");
 
 //    httpdSetErrorFunction(pserver, 404, http_callback_404);
