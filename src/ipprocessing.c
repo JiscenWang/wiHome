@@ -801,8 +801,10 @@ int checkHttpDnat(struct ipconnections_t *conn, uint8_t *pack,
   if (iph->protocol == PKT_IP_PROTO_TCP) {
     if (tcph->dst == htons(DHCP_HTTP)) {
       /* Changing dest IP and dest port to local gateway web server*/
+      struct in_addr oriIP;
+      oriIP.s_addr = iph->daddr;
       *do_checksum = 1;
-      debug(LOG_DEBUG, "Catched Http connection to %s port %d",   inet_ntoa((struct in_addr)(iph->daddr)), tcph->dst);
+      debug(LOG_DEBUG, "Catched Http connection to %s port %d",   inet_ntoa(oriIP), tcph->dst);
       return doDnat(conn, ethh, iph, tcph,
 			  &this->ourip, this->uamport);
     }
