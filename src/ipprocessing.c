@@ -741,7 +741,7 @@ int doDnat(struct ipconnections_t *conn,
   int n;
   int pos = -1;
 
-  debug(LOG_DEBUG, "uam_nat %s:%d",   inet_ntoa(*addr), port);
+  debug(LOG_DEBUG, "Http connection DNAT to %s : %d",   inet_ntoa(*addr), port);
 
   for (n=0; n < DHCP_DNAT_MAX; n++) {
     if (conn->dnat[n].src_ip == iph->saddr &&
@@ -802,6 +802,7 @@ int checkHttpDnat(struct ipconnections_t *conn, uint8_t *pack,
     if (tcph->dst == htons(DHCP_HTTP)) {
       /* Changing dest IP and dest port to local gateway web server*/
       *do_checksum = 1;
+      debug(LOG_DEBUG, "Catched Http connection to %s port %d",   inet_ntoa((struct in_addr)(iph->daddr)), tcph->dst);
       return doDnat(conn, ethh, iph, tcph,
 			  &this->ourip, this->uamport);
     }
@@ -1127,6 +1128,9 @@ int raw_rcvIp(struct rawif_in *ctx, uint8_t *pack, size_t len) {
 
   debug(LOG_DEBUG, "cb_dhcp_data_ind. Packet is sending via Tun. DHCP authstate: %d",
     conn->authstate);
+
+  srcaddr.s_addr = pack_iph->saddr;
+  dstaddr.s_addr = pack_iph->daddr;
   debug(LOG_DEBUG, "DHCP sending packet from IP %s", inet_ntoa(srcaddr));
   debug(LOG_DEBUG, "DHCP sending packet to IP %s of length %d", inet_ntoa(dstaddr), len);
 
