@@ -10,20 +10,25 @@
 
 #include "httpd.h"
 
-    typedef struct {
-        int port, serverSock, startTime, lastError;
-        char fileBasePath[HTTP_MAX_URL], *host;
-        FILE *accessLog, *errorLog;
-        void (*errorFunction304) (), (*errorFunction403) (), (*errorFunction404) ();
-    } authsvr;
+#define MAX_AUTH_LINES		20
+#define MAX_AUTH_NAME_LENGTH		64
 
-    typedef struct {
-        int clientSock, readBufRemain;
-        char readBuf[HTTP_READ_BUF_LEN + 1], *readBufPtr, clientAddr[HTTP_IP_ADDR_LEN];
-    } authrequest;
 
-    int initAuthserver(httpd **ppserver, char *address, int port);
-    int authConnect(authsvr *server, int index);
+  typedef struct {
+     int port, serverSock, startTime, lastError;
+     char *host;
+     struct gateway_t *gateway;
+     void (*errorFunction304) (), (*errorFunction403) (), (*errorFunction404) ();
+  } authsvr;
 
+  typedef struct {
+     int clientSock, readBufRemain;
+     char readBuf[HTTP_READ_BUF_LEN + 1], *readBufPtr, clientAddr[HTTP_IP_ADDR_LEN];
+     int authRequest;
+     char clientName[MAX_AUTH_NAME_LENGTH];
+  } authrequest;
+
+  int initAuthserver(httpd **ppserver, char *address, int port);
+  int authConnect(authsvr *server, int index);
 
 #endif /* SRC_JAUTH_H_ */

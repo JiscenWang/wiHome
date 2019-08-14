@@ -118,7 +118,7 @@ static int callNetSend(struct _net_interface *netif, unsigned char *hismac,
 
 
 /* Find an IP address in the pool */
-static int ippoolGetip(struct ippool_t *this,
+int ippoolGetip(struct ippool_t *this,
 		 struct ippoolm_t **member,
 		 struct in_addr *addr) {
   struct ippoolm_t *p;

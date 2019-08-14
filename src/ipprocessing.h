@@ -121,9 +121,9 @@ struct dnat_t {
 };
 
 struct ipconnections_t {
-	struct ipconnections_t *nexthash; /* Linked list part of hash table */
-	struct ipconnections_t *next;     /* Next in linked list. 0: Last */
-	struct ipconnections_t *prev;     /* Previous in linked list. 0: First */
+  struct ipconnections_t *nexthash; /* Linked list part of hash table */
+  struct ipconnections_t *next;     /* Next in linked list. 0: Last */
+  struct ipconnections_t *prev;     /* Previous in linked list. 0: First */
 
   struct gateway_t *parent;        /* Gateway is Parent of all connections */
 
@@ -147,10 +147,12 @@ struct ipconnections_t {
 
   struct in_addr dns1;         /* Client DNS address */
   struct in_addr dns2;         /* Client DNS address */
+
 //Jerome  char domain[DHCP_DOMAIN_LEN];/* Domain name to use for DNS lookups */
-  int authstate;               /* 0: Unauthenticated, 1: Authenticated */
-  uint8_t unauth_cp;           /* Unauthenticated codepoint */
-  uint8_t auth_cp;             /* Authenticated codepoint */
+  int authstate;               /* AUTH_CLIENT */
+  int clientSock;				/* Client auth socket*/
+  time_t lastauthtime;				/*  Last time we heard auth heart beat from client*/
+
   int nextdnat;                /* Next location to use for DNAT */
   uint32_t dnatdns;            /* Destination NAT for dns mapping */
   struct dnat_t dnat[DHCP_DNAT_MAX]; /* Destination NAT */

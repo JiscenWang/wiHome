@@ -283,9 +283,6 @@ int dnsHandler(struct ipconnections_t *conn, uint8_t *pack, size_t *plen) {
     return WH_STOP;
 
   } else {
-
-	debug(LOG_DEBUG, "DNS packet of length %zu",   *plen);
-
     struct dns_packet_t *dnsp = pkt_dnspkt(pack);
 
     size_t dlen = *plen - DHCP_DNS_HLEN - sizeofudp(pack);
@@ -302,10 +299,6 @@ int dnsHandler(struct ipconnections_t *conn, uint8_t *pack, size_t *plen) {
     int i;
 
     uint16_t id = ntohs(dnsp->id);
-    debug(LOG_DEBUG, "dhcp_dns plen=%zd dlen=%zd olen=%zd",   *plen, dlen, olen);
-    debug(LOG_DEBUG, "DNS ID:    %d",   id);
-    debug(LOG_DEBUG, "DNS Flags: %d",   flags);
-
     /* it was a response? shouldn't be */
 	if (((flags & 0x8000) >> 15) == 1) {
 		debug(LOG_DEBUG, "Dropping unexpected DNS response");
@@ -317,11 +310,13 @@ int dnsHandler(struct ipconnections_t *conn, uint8_t *pack, size_t *plen) {
 	for (i=0; dlen && i < qdcount; i++) {
 		if (copyDnsRsp(conn, &dptr, &dlen,
 				(uint8_t *)dnsp, olen, q, sizeof(q))) {
-			syslog(LOG_WARNING, "dropping malformed DNS");
+			debug(LOG_WARNING, "Dropping unexpected DNS request");
 			sendDnsNak(conn, pack, *plen);
 			return WH_STOP;
 		}
 	}
+
+	debug(LOG_DEBUG, "DNS request %s with ID %d and Flags: %d", q, id, flags);
 
       if (flags == 0x0100 && qdcount >= 0x0001) {
 

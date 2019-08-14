@@ -105,7 +105,7 @@ http_callback_302(httpd *webserver, request * r, int error_code)
 	s_gwOptions *gwOptions = get_gwOptions();
     char *url = NULL;
     /*Jerome add here \r to \r\n in httpdAddHeader*/
-    safe_asprintf(&url, "http://%s/wihome", gwOptions->redirhost);
+    safe_asprintf(&url, "http://%s", gwOptions->redirhost);
     http_send_redirect(r, url, "Moved Temporarily");
     free(url);
 	return;
@@ -249,7 +249,7 @@ int rcvHttpConnection(httpd *server, int index){
          *
          * We should create another thread
          */
-        debug(LOG_INFO, "Received connection from %s, spawning worker thread", r->clientAddr);
+        debug(LOG_DEBUG, "Received connection from %s, spawning worker thread", r->clientAddr);
         /* The void**'s are a simulation of the normal C
          * function calling sequence. */
 //        params = safe_malloc(2 * sizeof(void *));
@@ -296,6 +296,7 @@ int initWebserver(httpd **ppserver, char *address, int port){
 
     /*Jerome TBD define new Html*/
     debug(LOG_DEBUG, "Assigning callbacks to web server");
+    httpdAddCContent(pserver, "/", "", 0, NULL, http_callback_wihome);
     httpdAddCContent(pserver, "/", "wihome", 0, NULL, http_callback_wihome);
     httpdAddCContent(pserver, "/wihome", "", 0, NULL, http_callback_wihome);
     httpdAddCContent(pserver, "/wihome", "about", 0, NULL, http_callback_about);

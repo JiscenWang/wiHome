@@ -349,6 +349,7 @@ static void loopMain(void)
         debug(LOG_ERR, "Could not create Auth server: %s", strerror(errno));
         exit(1);
     }
+    authserver->gateway = homeGateway;
 
     /*Jerome: Add J-module*/
     net_select_reg(&sctx, authserver->serverSock,

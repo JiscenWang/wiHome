@@ -48,7 +48,7 @@ int len;
 #else
     /*return( read(sock, buf, len)); */
     /* XXX Select based IO */
-
+/*
     int nfds;
     fd_set readfds;
     struct timeval timeout;
@@ -61,10 +61,10 @@ int len;
 
     nfds = select(nfds, &readfds, NULL, NULL, &timeout);
 
-    if (nfds > 0) {
+    if (nfds > 0) {*/
         return (read(sock, buf, len));
-    }
-    return (nfds);
+/*    }
+    return (nfds);*/
 #endif
 }
 

@@ -1324,16 +1324,17 @@ int ip_checkTimeout(struct gateway_t *this)
 	  struct ipconnections_t *conn = this->firstusedconn;
 
 	  while (conn) {
-	//    debug(LOG_DEBUG, "dhcp_checkconn: %d %d", mainclock_diff(conn->lasttime), (int) this->lease);
-
+		// regularly checking for DHCP leasing expire
 	    struct ipconnections_t *check_conn = conn;
 	    conn = conn->next;
 	    if ((int)(mainclock.tv_sec - check_conn->lasttime) > (int)this->lease ) {
 	      debug(LOG_DEBUG, "DHCP timeout: Removing connection");
 	      ip_relConnection(this, check_conn->hismac, check_conn);
 	    }
-	  }
 
+		// regularly checking for auth expire
+
+	  }
 	  return 0;
 }
 

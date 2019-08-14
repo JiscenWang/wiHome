@@ -21,12 +21,17 @@
 
 /* for unix socket communication*/
 #include <sys/socket.h>
+#include <sys/types.h>
 #include <sys/un.h>
+/*for safely inet_pton(),inet_ntop()*/
+#include <arpa/inet.h>
 
 #include "common.h"
 #include "debug.h"
 #include "homeauth.h"
 #include "homeconfig.h"
+#include "gatewayapi.h"
+#include "functions.h"
 
 void thread_authsvr(void *args);
 authrequest *authGetConnection(authsvr *server, struct timeval *timeout);
@@ -34,39 +39,43 @@ int authReadRequest(authsvr * server, authrequest * r);
 void authEndRequest(authrequest * r);
 void authProcessRequest(authsvr * server, authrequest * r);
 
-
-/** Main request handling thread.
-@param args Two item array of void-cast pointers to the httpd and request struct
-*/
-void
-thread_authsvr(void *args)
+int authReadLine(request * r, char *destBuf, int len)
 {
-	void	**params;
-	authsvr	*webserver;
-	authrequest	*r;
-	s_gwOptions *gwOptions = get_gwOptions();
+    char curChar, *dst;
+    int count;
 
-	params = (void **)args;
-	webserver = *params;
-	r = *(params + 1);
-	free(params); /* XXX We must release this ourselves. */
+	if(r->readBufRemain == 0){
+	    bzero(r->readBuf, HTTP_READ_BUF_LEN + 1);
+	    r->readBufRemain = read(r->clientSock, r->readBuf, HTTP_READ_BUF_LEN);
 
-	if (authReadRequest(webserver, r) == 0) {
-		/*
-		 * We read the request fine
-		 */
-		debug(LOG_DEBUG, "Processing request from %s", r->clientAddr);
-		authProcessRequest(webserver, r);
-
+	    if (r->readBufRemain < 1)
+	        return (0);
+	    r->readBuf[r->readBufRemain] = 0;
+	    r->readBufPtr = r->readBuf;
 	}
-	else {
-		debug(LOG_DEBUG, "No valid request received from %s", r->clientAddr);
-	}
-	debug(LOG_DEBUG, "Closing connection with %s", r->clientAddr);
-	authEndRequest(r);
+
+    count = 0;
+    dst = destBuf;
+    while (count < r->readBufRemain) {
+
+    	curChar = *r->readBufPtr++;
+    	r->readBufRemain--;
+
+        if (curChar == '\n' || !isascii(curChar)) {
+            *dst = 0;
+            return (1);
+        }
+        count++;
+        if (curChar == '\r') {
+
+            continue;
+        } else {
+            *dst++ = curChar;
+        }
+    }
+    *dst = 0;
+    return (1);
 }
-
-
 
 authrequest *
 authGetConnection(server, timeout)
@@ -78,21 +87,20 @@ struct timeval *timeout;
     socklen_t addrLen;
     char *ipaddr;
     authrequest *r;
-    /* Reset error */
-    server->lastError = 0;
+
     result = 0;
 
     /* Allocate request struct */
     r = (authrequest *) malloc(sizeof(authrequest));
     if (r == NULL) {
-        server->lastError = -3;
-        return (NULL);
+        return NULL;
     }
     memset((void *)r, 0, sizeof(authrequest));
     /* Get on with it */
     bzero(&addr, sizeof(addr));
     addrLen = sizeof(addr);
     r->clientSock = accept(server->serverSock, (struct sockaddr *)&addr, &addrLen);
+
     ipaddr = inet_ntoa(addr.sin_addr);
     if (ipaddr) {
         strncpy(r->clientAddr, ipaddr, HTTP_IP_ADDR_LEN);
@@ -109,7 +117,47 @@ struct timeval *timeout;
 int
 authReadRequest(authsvr * server, authrequest * r)
 {
+    char buf[HTTP_MAX_LEN];
+    char *cp, *cp2;
+    int count, inHeaders;
 
+    count = 0;
+    while (authReadLine(r, buf, HTTP_MAX_LEN) > 0) {
+        count++;
+        /*First line for hello handshaking*/
+        if (count == 1) {
+            cp = cp2 = buf;
+            while (isalpha((unsigned char)*cp2))
+                cp2++;
+            *cp2 = 0;
+            if (strcasecmp(cp, "HelloWorld") == 0){
+            	r->authRequest = 1;
+            }else{
+            	r->authRequest = 0;
+            }
+            continue;
+        }
+
+        if (count < MAX_AUTH_LINES) {
+            if (*buf == 0) {
+                break;
+            }
+
+            if (strncasecmp(buf, "My Name: ", 9) == 0) {
+                cp = strchr(buf, ':');
+                if (cp) {
+                    cp += 2;
+                    cp = strchr(cp, ' ') + 1;
+                    if (cp) {
+                    	strncpy(r->clientName, cp, MAX_AUTH_NAME_LENGTH);
+                    }
+                }
+            }
+            continue;
+        }else{
+            break;
+        }
+    }
     return (0);
 }
 
@@ -122,11 +170,69 @@ authEndRequest(authrequest * r)
 }
 
 
-void
-authProcessRequest(authsvr * server, authrequest * r)
+int authProcessRequest(authsvr * server, authrequest * r)
 {
+	struct gateway_t *pgateway;
+	struct ippoolm_t *ipm;
+	struct ipconnections_t *peerconn = 0;
+	struct in_addr clientIP;
+	int err = 0;
 
+	if((r->authRequest ==1) && (r->clientAddr != NULL)){
+		pgateway = server->gateway;
 
+	    err = inet_pton(AF_INET, r->clientAddr, &clientIP);   /* 将字符串转换为二进制 */
+	    if(err > 0){
+			debug(LOG_ERR, "inet_pton:ip,%s value is:0x%x\n", r->clientAddr, clientIP.s_addr);
+			return -1;
+	    }
+
+		if (ippoolGetip(pgateway->ippool, &ipm, &clientIP)) {
+			debug(LOG_DEBUG, "Quit auth procedure with unknown client: %s", r->clientAddr);
+		    return -1;
+		}
+
+		peerconn = (struct ipconnections_t *)ipm->peer;
+
+		if (peerconn == NULL) {
+			debug(LOG_ERR, "No dnlink protocol defined for %s", r->clientAddr);
+			return 0;
+		}
+
+		peerconn->authstate = AUTH_CLIENT;
+		peerconn->clientSock = r->clientSock;
+		peerconn->lastauthtime = mainclock_tick();
+	}
+	return 0;
+}
+
+void
+thread_authsvr(void *args)
+{
+	void	**params;
+	authsvr	*authserver;
+	authrequest	*r;
+	s_gwOptions *gwOptions = get_gwOptions();
+
+	params = (void **)args;
+	authserver = *params;
+	r = *(params + 1);
+	free(params); /* XXX We must release this ourselves. */
+
+	if (authReadRequest(authserver, r) == 0) {
+		/*
+		 * We read the request fine
+		 */
+		debug(LOG_DEBUG, "Processing auth request from %s", r->clientAddr);
+		authProcessRequest(authserver, r);
+	}
+	else {
+		debug(LOG_DEBUG, "No valid auth request received from %s", r->clientAddr);
+		debug(LOG_DEBUG, "Closing auth connection with %s", r->clientAddr);
+		authEndRequest(r);
+	}
+//	debug(LOG_DEBUG, "Closing auth connection with %s", r->clientAddr);
+//	authEndRequest(r);
 }
 
 
@@ -138,34 +244,28 @@ int authConnect(authsvr *server, int index){
     int result;
     pthread_t tid;
 
-//    r = authGetConnection(server, NULL);
-
-    struct sockaddr_in clnt_addr;/*只是声明，并没有赋值*/
-    socklen_t clnt_addr_size = sizeof(clnt_addr);
-    int clnt_sock = accept(server->serverSock, (struct sockaddr*)&clnt_addr, &clnt_addr_size);
-
-    if(clnt_sock == -1){
+    r = authGetConnection(server, NULL);
+    if(r == NULL){
+        debug(LOG_ERR, "Failed to allocate request memory");
+        return -1;
+    }
+    if(r->clientSock < 0){
         debug(LOG_ERR, "Failed to accept a new connection");
         return -1;
     }
-        /*
-         * We got a connection
-         *
-         * We should create another thread
-         */
-//        debug(LOG_INFO, "Received connection from %s, spawning worker thread", r->clientAddr);
-        /* The void**'s are a simulation of the normal C
-         * function calling sequence. */
-        params = safe_malloc(2 * sizeof(void *));
-        *params = server;
-        *(params + 1) = r;
 
-        result = pthread_create(&tid, NULL, (void *)thread_authsvr, (void *)params);
-        if (result != 0) {
-            debug(LOG_ERR, "FATAL: Failed to create a new thread (httpd) - exiting");
-            termination_handler(0);
-        }
-        pthread_detach(tid);
+    debug(LOG_DEBUG, "Received authen connection from %s, spawning worker thread", r->clientAddr);
+
+	params = safe_malloc(2 * sizeof(void *));
+	*params = server;
+	*(params + 1) = r;
+
+	result = pthread_create(&tid, NULL, (void *)thread_authsvr, (void *)params);
+	if (result != 0) {
+		debug(LOG_ERR, "FATAL: Failed to create a new authen thread - exiting");
+		termination_handler(0);
+	}
+	pthread_detach(tid);
 
     return 0;
 }
@@ -228,6 +328,7 @@ int initAuthserver(httpd **ppserver, char *address, int port){
         return -1;
     }
 
+    /*Jerome TBD, change 20 to a Macro definition*/
     if(listen(server_sockfd, 20) == -1){
         debug(LOG_ERR, "%s: Listen Auth socket error", strerror(errno));
         return -1;

@@ -32,4 +32,6 @@ int gw_sendUlData(struct ipconnections_t *conn, uint8_t *pack, size_t len);
 
 int gw_routeData(struct gateway_t *this, struct in_addr dstIP, uint8_t *packet, size_t length);
 
+int ippoolGetip(struct ippool_t *this, struct ippoolm_t **member, struct in_addr *addr);
+
 #endif /* SRC_GATEWAYAPI_H_ */
