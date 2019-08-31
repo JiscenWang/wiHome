@@ -240,3 +240,57 @@ safe_vasprintf(char **strp, const char *fmt, va_list ap)
     }
     return (retval);
 }
+
+
+struct in_addr *
+wd_gethostbyname(const char *name)
+{
+    struct hostent *he = NULL;
+    struct in_addr *addr = NULL;
+    struct in_addr *in_addr_temp = NULL;
+
+    /* XXX Calling function is reponsible for free() */
+    addr = safe_malloc(sizeof(*addr));
+
+    he = gethostbyname(name);
+
+    if (he == NULL) {
+        free(addr);
+        return NULL;
+    }
+
+    in_addr_temp = (struct in_addr *)he->h_addr_list[0];
+    addr->s_addr = in_addr_temp->s_addr;
+
+    return addr;
+}
+
+void checkGwOnline()
+{
+    t_popular_server *popular_server = NULL;
+    struct in_addr *h_addr;
+    s_gwOptions *gwOptions = get_gwOptions();
+
+    for (popular_server = gwOptions->popular_servers; popular_server;
+    		popular_server = popular_server->next) {
+        debug(LOG_DEBUG, "Resolving popular server [%s]", popular_server->hostname);
+
+        h_addr = wd_gethostbyname(popular_server->hostname);
+        if (h_addr) {
+            debug(LOG_DEBUG, "Resolving popular server [%s] succeeded = [%s]", popular_server->hostname,
+                  inet_ntoa(*h_addr));
+            break;
+        } else {
+            debug(LOG_DEBUG, "Resolving popular server [%s] failed", popular_server->hostname);
+        }
+    }
+    if (h_addr) {
+        free(h_addr);
+        gwOptions->gw_online = 1;
+    } else {
+        gwOptions->gw_online = 0;
+        debug(LOG_DEBUG, "Failed to resolve all popular servers. \
+        		The internet connection is probably down!");
+    }
+}
+

@@ -149,8 +149,6 @@ typedef struct {
 
     char *pidfile;            /**< @brief pid file path of home gateway */
 
-    t_auth_serv *auth_servers;  /**< @brief Auth servers list */
-
     char *httpdname;            /**< @brief Name the web server will return when replying to a request */
     char *redirhost;           /**< URL host name of redirect web*/
 
@@ -159,8 +157,8 @@ typedef struct {
     int clienttimeout;          /**< @brief How many CheckIntervals before a client must be re-authenticated */
     int checkinterval;          /**< @brief Frequency the the client timeout check thread will run. */
 
-    t_popular_server *popular_servers; /**< @brief list of popular servers */
-
+    t_popular_server *popular_servers; /*list of popular servers */
+    int gw_online; /*0, offline; 1, online */
 } s_gwOptions;
 
 
@@ -175,12 +173,6 @@ void readConfig(const char *filename);
 
 /** @brief Check that the configuration is valid */
 void valiConfig(void);
-
-/** @brief Get the active auth server */
-t_auth_serv *get_auth_server(void);
-
-/** @brief Bump server to bottom of the list */
-void mark_auth_server_bad(t_auth_serv *);
 
 
 #endif                          /* _CONFIG_H_ */

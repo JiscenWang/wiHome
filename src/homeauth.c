@@ -37,7 +37,7 @@ void thread_authsvr(void *args);
 authrequest *authGetConnection(authsvr *server, struct timeval *timeout);
 int authReadRequest(authsvr * server, authrequest * r);
 void authEndRequest(authrequest * r);
-void authProcessRequest(authsvr * server, authrequest * r);
+int authProcessRequest(authsvr * server, authrequest * r);
 
 int authReadLine(request * r, char *destBuf, int len)
 {
@@ -225,8 +225,7 @@ thread_authsvr(void *args)
 		 */
 		debug(LOG_DEBUG, "Processing auth request from %s", r->clientAddr);
 		authProcessRequest(authserver, r);
-	}
-	else {
+	}else{
 		debug(LOG_DEBUG, "No valid auth request received from %s", r->clientAddr);
 		debug(LOG_DEBUG, "Closing auth connection with %s", r->clientAddr);
 		authEndRequest(r);

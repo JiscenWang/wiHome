@@ -12,6 +12,7 @@
 #include <unistd.h>             /* For fork */
 #include <sys/socket.h>
 
+
 void save_pid_file(const char *pf);
 
 time_t mainclock_tick();
@@ -23,5 +24,6 @@ void *safe_malloc(size_t size);
 int safe_read(int s, void *b, size_t blen);
 char *safe_strdup(const char *s);
 int safe_asprintf(char **strp, const char *fmt, ...);
+void checkGwOnline();
 
 #endif /* SRC_FUNCTIONS_H_ */

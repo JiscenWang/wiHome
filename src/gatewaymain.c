@@ -287,7 +287,6 @@ static void loopMain(void)
     if (gwOptions && gwOptions->pidfile)
         save_pid_file(gwOptions->pidfile);
 
-
     /* Create a tunnel interface */
     if (initGateway(&homeGateway)) {
       debug(LOG_ERR, "Failed to create tun device for gateway");
@@ -375,7 +374,7 @@ static void loopMain(void)
     pthread_detach(tid_ping);
 	End, Jerome*/
 
-
+    checkGwOnline();
     debug(LOG_NOTICE, "Waiting for connections");
     while (1) {
     	/*Jerome, J-Module add*/
@@ -389,6 +388,7 @@ static void loopMain(void)
 			/*Jerome TBD, J-Module to check periodically if the client has connection with auth server*/
 	        //checkconn();
 	        lastSecond = mainclock.tv_sec;
+	        checkGwOnline();
 		}
 
 		if (net_select_prepare(&sctx))

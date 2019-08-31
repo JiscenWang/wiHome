@@ -118,7 +118,7 @@ http_callback_404(httpd * webserver, request * r, int error_code)
 {
 	char tmp_url[MAX_BUF], *url, *mac;
 	s_gwOptions *gwOptions = get_gwOptions();
-    t_auth_serv *auth_server = get_auth_server();
+//    t_auth_serv *auth_server = get_auth_server();
 
     memset(tmp_url, 0, sizeof(tmp_url));
     /*
@@ -161,11 +161,17 @@ http_callback_wihome(httpd *webserver, request * r)
     url = httpdUrlEncode(tmp_url);
 
 	char *buf;
-	safe_asprintf(&buf,
-			"<p>Please read the indication to be able to reaching the Internet.</p>"
-			"<p>If you want to have the right to access the Internet. Please install the application on your computer, pad or mobile phone. And then apply the right from the Wifi spot owner.</p>"
-			"<p>After the Wifi spot owner agreed, he/she will let you online.</p>"
-			"<p>In a while please <a href='%s'>click here</a> to try your request again.</p>", tmp_url);
+	if(gwOptions->gw_online == 1){
+		safe_asprintf(&buf,
+				"<p>Please read the indication to be able to reaching the Internet.</p>"
+				"<p>If you want to have the right to access the Internet. Please install the application on your computer, pad or mobile phone. And then apply the right from the Wifi spot owner.</p>"
+				"<p>After the Wifi spot owner agreed, he/she will let you online.</p>"
+				"<p>In a while please <a href='%s'>click here</a> to try your request again.</p>", tmp_url);
+	}else{
+		safe_asprintf(&buf,
+				"<p>The Gateway is temporarily off-line now.</p>"
+				"<p>Please check the cable what's wrong to access the Internet.</p>");
+	}
 
 	send_http_page(r, "Wireless Home", buf);
 	free(buf);

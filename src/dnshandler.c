@@ -178,8 +178,6 @@ int sendDnsRsp(struct ipconnections_t *conn, uint8_t *pack, size_t len) {
 
 	p = dnsp->records;
 
-	debug(LOG_DEBUG, "It was a matching query!\n");
-
 	do {
 		if (query_len < 256)
 			query[query_len++] = *p;
@@ -328,8 +326,15 @@ int dnsHandler(struct ipconnections_t *conn, uint8_t *pack, size_t *plen) {
         }
 
         if (match) {
+        	debug(LOG_DEBUG, "It was a matching query!\n");
         	sendDnsRsp(conn, pack, *plen);
-          return WH_STOP;
+        	return WH_STOP;
+        }else{
+        	if(!gwOptions->gw_online){
+            	debug(LOG_DEBUG, "Gateway if offline, return all DNS with GW's IP!\n");
+            	sendDnsRsp(conn, pack, *plen);
+            	return WH_STOP;
+        	}
         }
       }
       return WH_GOON;

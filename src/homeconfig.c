@@ -117,6 +117,7 @@ void initOptions(void)
     gwOptions.httpdname = gwOptions.gw_id;
 
     gwOptions.popular_servers = NULL;
+    gwOptions.gw_online = 0;
 
     gwOptions.daemon = DEFAULT_DAEMON;
 
@@ -131,8 +132,6 @@ void initOptions(void)
 
     gwOptions.redirhost = safe_strdup(GW_REDIR_HOST);
     gwOptions.httpdmaxconn = DEFAULT_HTTPDMAXCONN;
-
-    gwOptions.auth_servers = NULL;
 
     gwOptions.clienttimeout = DEFAULT_CLIENTTIMEOUT;
     gwOptions.checkinterval = DEFAULT_CHECKINTERVAL;
@@ -257,7 +256,7 @@ void readConfig(const char *filename)
                     break;
 
                 case oPopularServers:
-//                    parse_popular_servers(rawarg);
+                    parse_popular_servers(rawarg);
                     break;
 
                 case oHTTPDMaxConn:
@@ -311,7 +310,7 @@ valiConfig(void)
     config_notnull(gwOptions.internalif, "InternalInterface");
 
     /*Jerome: J-Module removes these validations*/
-//    validate_popular_servers();
+    validate_popular_servers();
 
 }
 
@@ -494,8 +493,9 @@ validate_popular_servers(void)
 {
     if (gwOptions.popular_servers == NULL) {
         debug(LOG_WARNING, "PopularServers not set in config file, this will become fatal in a future version.");
-        add_popular_server("www.google.com");
-        add_popular_server("www.yahoo.com");
+        add_popular_server("www.baidu.com");
+        add_popular_server("www.taobao.com");
+        add_popular_server("www.sina.com.cn");
     }
 }
 
@@ -508,37 +508,4 @@ config_notnull(const void *parm, const char *parmname)
     if (parm == NULL) {
         debug(LOG_ERR, "%s is not set", parmname);
     }
-}
-
-/**
- * This function returns the current (first auth_server)
- */
-t_auth_serv *
-get_auth_server(void)
-{
-
-    /* This is as good as atomic */
-    return gwOptions.auth_servers;
-}
-
-/**
- * This function marks the current auth_server, if it matches the argument,
- * as bad. Basically, the "bad" server becomes the last one on the list.
- */
-void
-mark_auth_server_bad(t_auth_serv * bad_server)
-{
-    t_auth_serv *tmp;
-
-    if (gwOptions.auth_servers == bad_server && bad_server->next != NULL) {
-        /* Go to the last */
-        for (tmp = gwOptions.auth_servers; tmp->next != NULL; tmp = tmp->next) ;
-        /* Set bad server as last */
-        tmp->next = bad_server;
-        /* Remove bad server from start of list */
-        gwOptions.auth_servers = bad_server->next;
-        /* Set the next pointe to NULL in the last element */
-        bad_server->next = NULL;
-    }
-
 }
