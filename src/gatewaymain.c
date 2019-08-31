@@ -529,6 +529,10 @@ void termination_handler(int s)
 		endWebserver(webServer);
 	}
 
+	if(authserver){
+		endAuthserver(authserver);
+	}
+
     debug(LOG_NOTICE, "Exiting...");
     exit(s == 0 ? 1 : 0);
 }

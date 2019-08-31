@@ -338,3 +338,8 @@ int initAuthserver(httpd **ppserver, char *address, int port){
     return 0;
 }
 
+/* closing the web server */
+int endAuthserver(httpd *pserver){
+	httpdDestroy(pserver);
+	return WH_GOON;
+}

@@ -30,5 +30,5 @@
 
   int initAuthserver(httpd **ppserver, char *address, int port);
   int authConnect(authsvr *server, int index);
-
+  int endAuthserver(httpd *pserver);
 #endif /* SRC_JAUTH_H_ */

@@ -273,20 +273,20 @@ void checkGwOnline()
 
     for (popular_server = gwOptions->popular_servers; popular_server;
     		popular_server = popular_server->next) {
-        debug(LOG_DEBUG, "Resolving popular server [%s]", popular_server->hostname);
+//        debug(LOG_DEBUG, "Resolving popular server [%s]", popular_server->hostname);
 
         h_addr = wd_gethostbyname(popular_server->hostname);
         if (h_addr) {
-            debug(LOG_DEBUG, "Resolving popular server [%s] succeeded = [%s]", popular_server->hostname,
-                  inet_ntoa(*h_addr));
+//            debug(LOG_DEBUG, "Resolving popular server [%s] succeeded = [%s]", popular_server->hostname, inet_ntoa(*h_addr));
             break;
         } else {
-            debug(LOG_DEBUG, "Resolving popular server [%s] failed", popular_server->hostname);
+//            debug(LOG_DEBUG, "Resolving popular server [%s] failed", popular_server->hostname);
         }
     }
     if (h_addr) {
         free(h_addr);
         gwOptions->gw_online = 1;
+        debug(LOG_DEBUG, "Resolve popular servers succeeded. Gateway is online!");
     } else {
         gwOptions->gw_online = 0;
         debug(LOG_DEBUG, "Failed to resolve all popular servers. \
