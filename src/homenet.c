@@ -292,7 +292,7 @@ int net_run_selected(select_ctx *sctx, int status) {
     if (sctx->desc[i].fd) {
       char has_read = fd_isset(sctx->desc[i].fd, &sctx->rfds);
       if (has_read) {
-	sctx->desc[i].cb(sctx->desc[i].ctx, sctx->desc[i].idx);
+    	  sctx->desc[i].cb(sctx->desc[i].ctx, sctx->desc[i].idx);
       }
     }
   }

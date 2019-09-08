@@ -28,7 +28,7 @@
      char clientName[MAX_AUTH_NAME_LENGTH];
   } authrequest;
 
-  int initAuthserver(httpd **ppserver, char *address, int port);
+  int initAuthserver(httpd **ppserver, struct in_addr *svraddr, int port);
   int authConnect(authsvr *server, int index);
   int endAuthserver(httpd *pserver);
 #endif /* SRC_JAUTH_H_ */

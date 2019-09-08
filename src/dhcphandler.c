@@ -375,9 +375,9 @@ static int sendDhcpOffer(struct ipconnections_t *conn, uint8_t *pack, size_t len
   uint16_t length = udp_len + sizeofip(packet);
 
   if(gw_sendDlData(this, conn->rawIdx, conn->hismac, packet, length) < 0){
-	  return WH_FAIL;
+	  return NON_ZERO_FAIL;
   }else{
-	  return WH_SUCC;
+	  return ZERO_SUCCESS;
   }
 
 }
@@ -404,19 +404,19 @@ int informDHCP(struct ipconnections_t *conn, uint8_t *pack, size_t len){
 			!= (gwOptions->tundevip.s_addr& gwOptions->netmask.s_addr))) {
 		debug(LOG_DEBUG, "Client inform with IP with wrong net");
 	    sendDhcpNak(conn, pack, len);
-	    return WH_STOP;
+	    return NON_ZERO_STOP;
 	}
 
 	/* Request an IP address */
-	if (ip_allocClientIP(conn, &addr, pack, len) == WH_FAIL){
+	if (ip_allocClientIP(conn, &addr, pack, len) == NON_ZERO_FAIL){
 	    debug(LOG_DEBUG, "Failed to allocate an IP to client, sending NAK");
 	    sendDhcpNak(conn, pack, len);
-	    return WH_STOP;
+	    return NON_ZERO_STOP;
 	}
 	if (!conn->hisip.s_addr){
 	    debug(LOG_DEBUG, "Failed to allocate an IP to client, sending NAK");
 	    sendDhcpNak(conn, pack, len);
-	    return WH_STOP;
+	    return NON_ZERO_STOP;
 	}
 
 	/*记录client的名称*/
@@ -428,14 +428,14 @@ int informDHCP(struct ipconnections_t *conn, uint8_t *pack, size_t len){
 	if(sendDhcpAck(conn, pack, len)){
 		debug(LOG_ERR, "Fail to send ACK to "MAC_FMT" with IP %s",
 	    			MAC_ARG(conn->hismac), inet_ntoa(conn->hisip));
-	   	return WH_STOP;
+	   	return NON_ZERO_STOP;
 	}
 
 	/* Give client's request the allocated IP address */
     conn->dhcpstate = 2;
 	debug(LOG_DEBUG, "Sending ACK to "MAC_FMT" with IP %s",
       			MAC_ARG(conn->hismac), inet_ntoa(conn->hisip));
-   	return WH_GOON;
+   	return ZERO_CONTINUE;
 }
 
 int requestDHCP(struct ipconnections_t *conn, uint8_t *pack, size_t len){
@@ -454,32 +454,32 @@ int requestDHCP(struct ipconnections_t *conn, uint8_t *pack, size_t len){
 	if(addr.s_addr == INADDR_ANY){
 		debug(LOG_DEBUG, "Client requests but without address %s", inet_ntoa(addr));
 	    sendDhcpNak(conn, pack, len);
-	    return WH_STOP;
+	    return NON_ZERO_STOP;
 	}
 	debug(LOG_DEBUG, "Client requests its address %s", inet_ntoa(addr));
 
 	if (!conn->hisip.s_addr){
 	    debug(LOG_ERR, "Client's IP not set! Sending NAK to client");
 	    sendDhcpNak(conn, pack, len);
-	    return WH_STOP;
+	    return NON_ZERO_STOP;
 	}
     if (memcmp(&conn->hisip.s_addr, &addr.s_addr, 4)){
 	    debug(LOG_DEBUG, "Client request not allocated IP! Sending NAK to client");
 	    sendDhcpNak(conn, pack, len);
-	    return WH_STOP;
+	    return NON_ZERO_STOP;
     }
 
 	if(sendDhcpAck(conn, pack, len)){
 		debug(LOG_ERR, "Fail to send ACK to "MAC_FMT" with IP %s",
 	    			MAC_ARG(conn->hismac), inet_ntoa(conn->hisip));
-	   	return WH_STOP;
+	   	return NON_ZERO_STOP;
 	}
 
 	/* Give client's request the allocated IP address */
     conn->dhcpstate = 2;
 	debug(LOG_DEBUG, "Sending ACK to "MAC_FMT" with IP %s",
       			MAC_ARG(conn->hismac), inet_ntoa(conn->hisip));
-   	return WH_GOON;
+   	return ZERO_CONTINUE;
 }
 
 int discoverDHCP(struct ipconnections_t *conn, uint8_t *pack, size_t len){
@@ -506,15 +506,15 @@ int discoverDHCP(struct ipconnections_t *conn, uint8_t *pack, size_t len){
 	}
 
 	/* Request an IP address */
-	if (ip_allocClientIP(conn, &addr, pack, len) == WH_FAIL){
+	if (ip_allocClientIP(conn, &addr, pack, len) == NON_ZERO_FAIL){
 	    debug(LOG_DEBUG, "Failed to allocate an IP to client, sending NAK");
 	    sendDhcpNak(conn, pack, len);
-	    return WH_STOP;
+	    return NON_ZERO_STOP;
 	}
 	if (!conn->hisip.s_addr){
 	    debug(LOG_DEBUG, "Failed to allocate an IP to client, sending NAK");
 	    sendDhcpNak(conn, pack, len);
-	    return WH_STOP;
+	    return NON_ZERO_STOP;
 	}
 	/*记录client的名称*/
 	if (!getDhcpTag(pack_dhcp, ntohs(pack_udph->len)-PKT_UDP_HLEN,
@@ -522,16 +522,16 @@ int discoverDHCP(struct ipconnections_t *conn, uint8_t *pack, size_t len){
 		memcpy(conn->hostname, host_name->v, DHCP_MAX_LENGTH_HOSTNAME);
 	}
 
-	if(sendDhcpOffer(conn, pack, len) == WH_FAIL){
+	if(sendDhcpOffer(conn, pack, len) == NON_ZERO_FAIL){
 		debug(LOG_ERR, "Fail to send offer to "MAC_FMT" with IP %s",
 	    			MAC_ARG(conn->hismac), inet_ntoa(conn->hisip));
-	   	return WH_STOP;
+	   	return NON_ZERO_STOP;
 	}
 
 	debug(LOG_DEBUG, "Sending offer to "MAC_FMT" with IP %s",
     			MAC_ARG(conn->hismac), inet_ntoa(conn->hisip));
     conn->dhcpstate = 1;
-   	return WH_GOON;
+   	return ZERO_CONTINUE;
 }
 
 /**
@@ -552,17 +552,17 @@ int dhcpHandler(struct rawif_in *ctx, uint8_t *pack, size_t len) {
   debug(LOG_DEBUG, "DHCP function get packet from "MAC_FMT, MAC_ARG(pack_ethh->src));
 
   if (pack_udph->dst != htons(DHCP_BOOTPS))
-    return 0; /* Not a DHCP packet */
+    return ZERO_CONTINUE; /* Not a DHCP packet */
 
   if (getDhcpTag(pack_dhcp, ntohs(pack_udph->len)-PKT_UDP_HLEN,
 		  &message_type, DHCP_OPTION_MESSAGE_TYPE)) {
 	  debug(LOG_ERR, "Failed to get DHCP tag of message type");
-    return -1;
+    return NON_ZERO_FAIL;
   }
 
   /* Wrong length of message type */
   if (message_type->l != 1)
-    return -1;
+    return NON_ZERO_FAIL;
 
   /* Check if the request message includes another MAC address */
   if (memcmp(pack_dhcp->chaddr, nonmac, PKT_ETH_ALEN))
@@ -575,15 +575,15 @@ int dhcpHandler(struct rawif_in *ctx, uint8_t *pack, size_t len) {
     		MAC_ARG(pack_ethh->src));
     if (ip_newConnection(this, &conn, mac)){
   	  debug(LOG_DEBUG, "dropping packet; fail of adding connections");
-      return -1;
+      return NON_ZERO_FAIL;
     }
   }else{
 	  debug(LOG_DEBUG, "IP handler: MAC Address "MAC_FMT" found with IP %s",
 		    		MAC_ARG(pack_ethh->src), inet_ntoa(conn->hisip));
-	  if (conn == NULL){
-		debug(LOG_ERR,"Connection not allocated well");
-		return -1;
-	  }
+  }
+  if (conn == NULL){
+	debug(LOG_ERR,"Connection not allocated well");
+	return NON_ZERO_FAIL;
   }
 
   switch(message_type->v[0]) {
@@ -591,38 +591,38 @@ int dhcpHandler(struct rawif_in *ctx, uint8_t *pack, size_t len) {
         debug(LOG_DEBUG,"DHCP-Decline");
         ip_relConnection(this, mac, conn);
         /* No Reply to client is sent */
-        return 0;
+        return ZERO_CONTINUE;
 
     case DHCPRELEASE:
         debug(LOG_DEBUG,"DHCP-Release");
         ip_relConnection(this, mac, conn);
         /* No Reply to client is sent */
-        return 0;
+        return ZERO_CONTINUE;
 
     case DHCPDISCOVER:
         debug(LOG_DEBUG,"DHCP-DISCOVER");
-        if(discoverDHCP(conn, pack, len) == WH_STOP){
-            return WH_STOP;
+        if(discoverDHCP(conn, pack, len) == NON_ZERO_STOP){
+            return NON_ZERO_STOP;
         }
         break;
 
     case DHCPREQUEST:
         debug(LOG_DEBUG,"DHCP-REQUEST");
-        if(requestDHCP(conn, pack, len) == WH_STOP){
-            return WH_STOP;
+        if(requestDHCP(conn, pack, len) == NON_ZERO_STOP){
+            return NON_ZERO_STOP;
         }
         break;
 
     case DHCPINFORM:
         debug(LOG_DEBUG,"DHCP-INFORM");
-        if(informDHCP(conn, pack, len) == WH_STOP){
-            return WH_STOP;
+        if(informDHCP(conn, pack, len) == NON_ZERO_STOP){
+            return NON_ZERO_STOP;
         }
         break;
 
     default:
     	debug(LOG_INFO, "Unsupported DHCP message ignored");
-    	return 0; /* Unsupported message type */
+    	return ZERO_CONTINUE; /* Unsupported message type */
   }
 
 
@@ -633,5 +633,5 @@ int dhcpHandler(struct rawif_in *ctx, uint8_t *pack, size_t len) {
   }*/
 
   conn->lasttime = mainclock_tick();
-  return 0;
+  return ZERO_CONTINUE;
 }

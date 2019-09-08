@@ -19,9 +19,7 @@
 #include "../config.h"
 
 
-/** @internal
- * Holds the current configuration of the gateway */
-static s_gwOptions gwOptions;
+
 
 /** @internal
  The different configuration options */
@@ -33,7 +31,7 @@ typedef enum {
     oGatewayID,
 	oInternalInterface,
     oGatewayAddress,
-    oGatewayPort,
+    oCaptivePort,
     oHTTPDMaxConn,
     oClientTimeout,
     oCheckInterval,
@@ -56,7 +54,7 @@ static const struct {
     "gatewayid", oGatewayID}, {
     "internalinterface", oInternalInterface}, {
     "gatewayaddress", oGatewayAddress}, {
-    "gatewayport", oGatewayPort}, {
+    "captiveport", oCaptivePort}, {
     "httpdmaxconn", oHTTPDMaxConn}, {
     "clienttimeout", oClientTimeout}, {
     "checkinterval", oCheckInterval}, {
@@ -78,48 +76,41 @@ static void add_popular_server(const char *);
 
 static OpCodes option_parse_token(const char *, const char *, int);
 
-/** Accessor for the current gateway configuration
-@return:  A pointer to the current config.  The pointer isn't opaque, but should be treated as READ-ONLY
- */
+/*Static structure variable of gateway configuration*/
+static s_gwOptions gwOptions;
+/*Entry of accessing gateway configuration*/
 s_gwOptions *get_gwOptions(void)
 {
     return &gwOptions;
 }
 
-/** Sets the default config parameters and initialises the configuration system */
-/*####Jerome, check ongoing*/
+/** Initiating the default parameters of gateway configuration*/
 void initOptions(void)
 {
 	memset(&gwOptions, 0, sizeof(s_gwOptions));
-    //config.external_interface = NULL;  /*External IF must be set later in the conf file*/
-    //config.internalif = NULL;	/*Internal IF must be set later in the conf file*/
 
-    debug(LOG_DEBUG, "Setting default config parameters of conf file %s and html file %s",
-    		DEFAULT_CONFIGFILE, DEFAULT_HTMLMSGFILE);
+    debug(LOG_DEBUG, "Setting default parameters of configuration from conf_file %s", DEFAULT_CONFIGFILE);
     gwOptions.configfile = safe_strdup(DEFAULT_CONFIGFILE);
-    gwOptions.htmlmsgfile = safe_strdup(DEFAULT_HTMLMSGFILE);
-
-    //config.gw_interface = NULL;/*without needing initialized to be zero*/
-    //config.gw_address = NULL;/*without needing initialized to be zero*/
+    gwOptions.htmlfile = safe_strdup(DEFAULT_HTMLMSGFILE);
+    gwOptions.daemon = DEFAULT_DAEMON;
+    gwOptions.pidfile = NULL;
 
     gwOptions.tundevname = safe_strdup(DEFAULT_GATEWAYID);
     gwOptions.tundevip.s_addr = inet_addr(WIRELESS_GATEWAY_IP);
     gwOptions.netmask.s_addr = inet_addr("255.255.255.0");
 
-    gwOptions.gw_id = gwOptions.tundevname;
-    gwOptions.gw_interface = gwOptions.tundevname;
-    gwOptions.gw_address = safe_strdup(WIRELESS_GATEWAY_IP);
-
-    gwOptions.gw_port = DEFAULT_CAPTIVEPORT;
+    gwOptions.cap_port = DEFAULT_CAPTIVEPORT;
+    gwOptions.redirhost = safe_strdup(GW_REDIR_HOST);
+    gwOptions.httpdname = gwOptions.tundevname;
+    gwOptions.httpdmaxconn = DEFAULT_HTTPDMAXCONN;
 
     gwOptions.auth_port = DEFAULT_LOCALAUTHPORT;
-
-    gwOptions.httpdname = gwOptions.gw_id;
 
     gwOptions.popular_servers = NULL;
     gwOptions.gw_online = 0;
 
-    gwOptions.daemon = DEFAULT_DAEMON;
+    gwOptions.clienttimeout = DEFAULT_CLIENTTIMEOUT;
+    gwOptions.checkinterval = DEFAULT_CHECKINTERVAL;
 
     gwOptions.dhcpdynip = safe_strdup(DHCP_DYN_IP_POOL);
     gwOptions.dns1.s_addr = inet_addr(GW_DEFAULT_DNS1);
@@ -129,14 +120,6 @@ void initOptions(void)
     //gwOptions.dhcpgwip = NULL;  /*Jerome TBD for DHCP relay mode*/
 //    gwOptions.max_clients = DHCP_MAX_CLIENTS;
 
-
-    gwOptions.redirhost = safe_strdup(GW_REDIR_HOST);
-    gwOptions.httpdmaxconn = DEFAULT_HTTPDMAXCONN;
-
-    gwOptions.clienttimeout = DEFAULT_CLIENTTIMEOUT;
-    gwOptions.checkinterval = DEFAULT_CHECKINTERVAL;
-
-    gwOptions.pidfile = NULL;
     gwOptions.whome_sock = safe_strdup(DEFAULT_WHOME_SOCK);
 
     debugconf.debuglevel = DEFAULT_DEBUGLEVEL;
@@ -164,7 +147,7 @@ static OpCodes option_parse_token(const char *cp, const char *filename, int line
 /**
 @param filename Full path of the configuration file to be read 
 */
-void readConfig(const char *filename)
+void readConfile(const char *filename)
 {
     FILE *fd;
     char line[MAX_BUF], *s, *p1, *p2, *tmpadr, *rawarg = NULL;
@@ -240,33 +223,26 @@ void readConfig(const char *filename)
                     parse_internal_interface(fd, filename, &linenum);
                     break;
                 case oGatewayAddress:
-                    /*Jerome: J-Module changes it to TUN IP*/
                 	gwOptions.tundevip.s_addr = inet_addr(safe_strdup(p1));
-                	gwOptions.gw_address = safe_strdup(p1);
-                    break;
-                case oGatewayPort:
-                    sscanf(p1, "%d", &gwOptions.gw_port);
                     break;
                 case oGatewayID:
-                	gwOptions.gw_id = safe_strdup(p1);
-                	gwOptions.tundevname = gwOptions.gw_id;
+                	gwOptions.tundevname = safe_strdup(p1);
+                    break;
+                case oCaptivePort:
+                    sscanf(p1, "%d", &gwOptions.cap_port);
                     break;
                 case oLocalAuthPort:
                     sscanf(p1, "%d", &gwOptions.auth_port);
                     break;
-
                 case oPopularServers:
                     parse_popular_servers(rawarg);
                     break;
-
                 case oHTTPDMaxConn:
                     sscanf(p1, "%d", &gwOptions.httpdmaxconn);
                     break;
-
                 case oCheckInterval:
                     sscanf(p1, "%d", &gwOptions.checkinterval);
                     break;
-
                 case oClientTimeout:
                     sscanf(p1, "%d", &gwOptions.clienttimeout);
                     break;
@@ -274,9 +250,8 @@ void readConfig(const char *filename)
                     sscanf(p1, "%d", &debugconf.syslog_facility);
                     break;
                 case oHtmlMessageFile:
-                	gwOptions.htmlmsgfile = safe_strdup(p1);
+                	gwOptions.htmlfile = safe_strdup(p1);
                     break;
-
                 case oBadOption:
                     /* FALL THROUGH */
                 default:
@@ -303,7 +278,7 @@ void
 valiConfig(void)
 {
     /*Jerome: J-Module changes wifidog GW IF to J-Module's TUN*/
-    config_notnull(gwOptions.gw_interface, "GatewayInterface");
+    config_notnull(gwOptions.tundevname, "GatewayInterface");
     /*Jerome: J-Module changes ExternalInterface to be mandatory, sharing this IF between wifidog and J-Module*/
     config_notnull(gwOptions.external_interface, "ExternalInterface");
     /*Jerome: J-Module add validation of internal inteface */
@@ -311,7 +286,6 @@ valiConfig(void)
 
     /*Jerome: J-Module removes these validations*/
     validate_popular_servers();
-
 }
 
 /** @internal

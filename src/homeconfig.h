@@ -8,14 +8,7 @@
 #include <arpa/inet.h>
 #include "homenet.h"
 
-#define WH_SUCC  0    //successful result
-#define WH_FAIL  -1
-
-#define WH_GOON  0   //continue
-#define WH_STOP  -1
-
-
-/** system configuration values */
+/** sysZERO_CONTINUEfiguration values */
 #ifndef SYSCONFDIR
 #define DEFAULT_CONFIGFILE "/etc/wiHome.conf"
 #define DEFAULT_HTMLMSGFILE "/etc/wiHome.html"
@@ -39,7 +32,7 @@
 /** software configuration values */
 #define DEFAULT_DAEMON 1
 
-#define DEFAULT_HTTPDMAXCONN 10
+#define DEFAULT_HTTPDMAXCONN 16
 #define DEFAULT_HTTPDNAME "wiHome"
 #define DEFAULT_CLIENTTIMEOUT 5
 #define DEFAULT_CHECKINTERVAL 60
@@ -105,28 +98,26 @@ typedef struct _auth_serv_t {
 } t_auth_serv;
 
 
-/**
- * Configuration structure
- */
+/*Configuration structure*/
 typedef struct {
-    char *configfile;       /**< @brief name of the config file */
-    char *htmlmsgfile;          /**< @brief name of the HTML file used for messages */
-    int daemon;                 /**< @brief if daemon > 0, use daemon mode */
+    char *configfile;       /*Name of the config file */
+    char *htmlfile;          /*Name of the HTML file*/
+    int daemon;                 /*0, use daemon mode */
+    char *pidfile;            /*Pid file path of home gateway */
 
-    char *gw_id;                /**< @brief ID of the Gateway, sent to central
-				     server */
-    char *gw_interface;         /**< @brief Interface we will accept connections on, J-Module reset it to J-Module's TUN */
-    char *gw_address;           /**< @brief Internal IP address for our web server */
-
-    char *tundevname;  /*self-defined name of tun dev*/
+    char *tundevname;  			/*self-defined name of tun dev*/
     struct in_addr tundevip;     /* IP address to listen to */
     struct in_addr netmask;     /* net mask of IP address*/
 
-    int gw_port;                /**< @brief Port the webserver will run on */
-    int auth_port;      /*Jerome add loacl auth port*/
+    int cap_port;                /*Captive port on which webserver will run*/
+    char *httpdname;            /**< @brief Name the web server will return when replying to a request */
+    char *redirhost;           /**< URL host name of redirect web*/
+    int httpdmaxconn;           /**< @brief Used by libhttpd, not sure what it does */
 
-	char *external_interface;   /**< @brief External network interface name for firewall rules */
-	char* internalif[MAX_RAWIF];  /*taking place of wifidog GW interface which was reset to TUN*/
+    int auth_port;          /*Jerome add loacl auth port*/
+
+	char *external_interface;   	/*External network interface's name of the gateway*/
+	char* internalif[MAX_RAWIF];    /*Internal network interfaces' name of the gateway*/
 
     struct in_addr dns1;         /* Client DNS address */
     struct in_addr dns2;         /* Client DNS address */
@@ -143,17 +134,7 @@ typedef struct {
     int macoklen;                   /* Number of MAC addresses */
     t_trusted_mac *trustedmaclist; /**< @brief list of trusted macs */
 
-
     char *whome_sock;           /**< @brief wdctl path to socket */
-    char *internal_sock;                /**< @brief internal path to socket */
-
-    char *pidfile;            /**< @brief pid file path of home gateway */
-
-    char *httpdname;            /**< @brief Name the web server will return when replying to a request */
-    char *redirhost;           /**< URL host name of redirect web*/
-
-    int httpdmaxconn;           /**< @brief Used by libhttpd, not sure what it does */
-
     int clienttimeout;          /**< @brief How many CheckIntervals before a client must be re-authenticated */
     int checkinterval;          /**< @brief Frequency the the client timeout check thread will run. */
 
@@ -169,7 +150,7 @@ s_gwOptions *get_gwOptions(void);
 void initOptions(void);
 
 /** @brief Reads the configuration file */
-void readConfig(const char *filename);
+void readConfile(const char *filename);
 
 /** @brief Check that the configuration is valid */
 void valiConfig(void);

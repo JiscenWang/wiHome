@@ -39,7 +39,7 @@ static int openTun(struct _net_interface *netif) {
   /* Open the actual tun device */
   if ((netif->fd = open("/dev/net/tun", O_RDWR)) < 0) {
     debug(LOG_ERR, "%s: open() failed", strerror(errno));
-    return -1;
+    return NON_ZERO_FAIL;
   }
 
   ndelay_on(netif->fd);
@@ -60,14 +60,14 @@ static int openTun(struct _net_interface *netif) {
   if (ioctl(netif->fd, TUNSETIFF, (void *) &ifr) < 0) {
     debug(LOG_ERR, "%s: ioctl() failed", strerror(errno));
     close(netif->fd);
-    return -1;
+    return NON_ZERO_FAIL;
   }
 
   strlcpy(netif->devname, ifr.ifr_name, IFNAMSIZ);
 
   ioctl(netif->fd, TUNSETNOCSUM, 1); /* Disable checksums */
 
-  return 0;
+  return ZERO_SUCCESS;
 }
 
 
@@ -79,7 +79,7 @@ static int openRawsocket(struct gateway_t *pgateway, char *interface) {
 
   if (net_init(&pgateway->rawIf[0], interface, ETH_P_ALL, 1) < 0) {
 	debug(LOG_ERR, "%s: raw socket init failed", strerror(errno));
-    return -1;
+    return NON_ZERO_FAIL;
   }
   debug(LOG_DEBUG, "Set gateway raw socket fd %d of dev %s", pgateway->rawIf[0].fd, pgateway->rawIf[0].devname);
 
@@ -99,7 +99,7 @@ static int openRawsocket(struct gateway_t *pgateway, char *interface) {
   }
 #endif
 
-  return 0;
+  return ZERO_SUCCESS;
 }
 
 static int callNetSend(struct _net_interface *netif, unsigned char *hismac,
@@ -129,12 +129,12 @@ int ippoolGetip(struct ippool_t *this,
   for (p = this->hash[hash]; p; p = p->nexthash) {
     if ((p->addr.s_addr == addr->s_addr) && (p->in_use)) {
       if (member) *member = p;
-      return 0;
+      return ZERO_SUCCESS;
     }
   }
 
   if (member) *member = NULL;
-  return -1;
+  return NON_ZERO_FAIL;
 }
 
 
@@ -270,7 +270,7 @@ static int cb_raw_rcvPackets(void *pctx, struct pkt_buffer *pb) {
 
   if (length < min_length) {
     debug(LOG_ERR, "Gateway from raw IF: bad packet length %zu", length);
-    return 0;
+    return ZERO_CONTINUE;
   }
 
   struct pkt_ethhdr_t *ethh = pkt_ethhdr(packet);
@@ -284,7 +284,7 @@ static int cb_raw_rcvPackets(void *pctx, struct pkt_buffer *pb) {
 
   if (prot < 1518) {
 	debug(LOG_ERR, "Gateway from raw: unhandled prot %d", prot);
-    return 0;
+    return ZERO_CONTINUE;
   }
 
   switch (prot) {
@@ -305,7 +305,7 @@ static int cb_raw_rcvPackets(void *pctx, struct pkt_buffer *pb) {
       break;
   }
 
-  return 0;
+  return ZERO_CONTINUE;
 }
 
 /*
@@ -343,7 +343,7 @@ int gw_raw_rcvPackets(struct gateway_t *this, int idx) {
   if ((length = net_read_dispatch_eth(iface, cb_raw_rcvPackets, &if_In)) < 0)
   {
 	  debug(LOG_ERR, "Gateway receives unhandled packet of length %d from raw interface %d", length, idx);
-	  return -1;
+	  return NON_ZERO_STOP;
   }
   return length;
 }
@@ -354,28 +354,32 @@ int initGateway(struct gateway_t **ppgateway) {
 
   if (!(home_gateway = *ppgateway = calloc(1, sizeof(struct gateway_t)))) {
     debug(LOG_ERR, "%s: calloc() failed", strerror(errno));
-    return -1;
+    return NON_ZERO_FAIL;
   }
 
-  openTun(&home_gateway->gwTun);
+  if(openTun(&home_gateway->gwTun) == NON_ZERO_FAIL){
+      debug(LOG_ERR, "Failed to create tun device for gateway");
+      return NON_ZERO_FAIL;
+  }
 
   net_set_address(&home_gateway->gwTun, &gwOptions->tundevip, &gwOptions->tundevip, &gwOptions->netmask);
   debug(LOG_DEBUG, "Set gateway IP address %s", inet_ntoa(gwOptions->tundevip));
 
   /*Open all raw sockets of all interfaces if multi LAN*/
-  if(openRawsocket(home_gateway, gwOptions->internalif[0]))
-	  return -1;
+  if(openRawsocket(home_gateway, gwOptions->internalif[0]) == NON_ZERO_FAIL){
+	  return NON_ZERO_FAIL;
+  }
 
   /* Initialise various variables */
   home_gateway->ourip.s_addr = gwOptions->tundevip.s_addr;
   debug(LOG_DEBUG, "Set gateway listening IP %s", inet_ntoa(gwOptions->tundevip));
 
-  home_gateway->uamport = gwOptions->gw_port;
+  home_gateway->uamport = gwOptions->cap_port;
   home_gateway->mtu = home_gateway->rawIf[0].mtu;
   home_gateway->netmask = gwOptions->netmask;
 
   sendDlGARP(home_gateway, -1);
-  return 0;
+  return ZERO_SUCCESS;
 }
 
 /*dhcp_send()*/

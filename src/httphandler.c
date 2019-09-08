@@ -35,12 +35,12 @@ void send_http_page(request * r, const char *title, const char *message)
     int fd;
     ssize_t written;
 
-    fd = open(gwOptions->htmlmsgfile, O_RDONLY);
+    fd = open(gwOptions->htmlfile, O_RDONLY);
     if (fd == -1) {
-        debug(LOG_CRIT, "Failed to open HTML message file %s: %s", gwOptions->htmlmsgfile, strerror(errno));
+        debug(LOG_CRIT, "Failed to open HTML message file %s: %s", gwOptions->htmlfile, strerror(errno));
         return;
     }
-    debug(LOG_DEBUG, "send_http_page from html file %s with fd %d", gwOptions->htmlmsgfile, fd);
+    debug(LOG_DEBUG, "send_http_page from html file %s with fd %d", gwOptions->htmlfile, fd);
 
     if (fstat(fd, &stat_info) == -1) {
         debug(LOG_CRIT, "Failed to stat HTML message file: %s", strerror(errno));
@@ -68,7 +68,7 @@ void send_http_page(request * r, const char *title, const char *message)
     buffer[written] = 0;
     httpdAddVariable(r, "title", title);
     httpdAddVariable(r, "message", message);
-    httpdAddVariable(r, "nodeID", gwOptions->gw_id);
+    httpdAddVariable(r, "nodeID", gwOptions->tundevname);
     httpdOutput(r, buffer);
     free(buffer);
 }
@@ -285,8 +285,9 @@ int rcvHttpConnection(httpd *server, int index){
 }
 
 /* Initializes the web server */
-int initWebserver(httpd **ppserver, char *address, int port){
+int initWebserver(httpd **ppserver, struct in_addr *svraddr, int port){
 	httpd *pserver;
+	char *address = inet_ntoa(svraddr);
 
     if ((pserver = httpdCreate(address, port)) == NULL) {
         return -1;
@@ -320,5 +321,5 @@ int initWebserver(httpd **ppserver, char *address, int port){
 /* closing the web server */
 int endWebserver(httpd *pserver){
 	httpdDestroy(pserver);
-	return WH_GOON;
+	return ZERO_CONTINUE;
 }

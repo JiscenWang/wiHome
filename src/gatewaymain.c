@@ -1,9 +1,6 @@
 /*
  * Jerome Build
 */
-
-/*####Jerome, checked ongoing*/
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <syslog.h>
@@ -37,9 +34,6 @@ struct gateway_t *homeGateway = NULL;                /* home gateway */
 /* The internal web server */
 httpd * webServer = NULL;
 authsvr * authserver = NULL;
-
-struct timespec mainclock;
-/*End, Jerome*/
 
 /** XXX Ugly hack 
  * We need to remember the thread IDs of threads that simulate wait with pthread_cond_timedwait
@@ -123,7 +117,6 @@ void parseCommandline(int argc, char **argv)
     while (-1 != (c = getopt(argc, argv, "hfd:sv"))) {
 
         switch (c) {
-
         case 'h':
         	printUsage();
             exit(1);
@@ -148,7 +141,6 @@ void parseCommandline(int argc, char **argv)
         	printUsage();
             exit(1);
             break;
-
         }
     }
 }
@@ -288,14 +280,13 @@ static void loopMain(void)
         save_pid_file(gwOptions->pidfile);
 
     /* Create a tunnel interface */
-    if (initGateway(&homeGateway)) {
-      debug(LOG_ERR, "Failed to create tun device for gateway");
+    if (initGateway(&homeGateway) == NON_ZERO_FAIL) {
       exit(1);
     }
     debug(LOG_DEBUG, "Create tun-gateway name of %s with fd %d", gwOptions->tundevname, homeGateway->gwTun.fd);
 
 	/* Create an instance of IP handler*/
-	if (initIpHandling(homeGateway)) {
+	if (initIpHandling(homeGateway) == NON_ZERO_FAIL) {
          debug(LOG_ERR, "Failed to create IP handler");
          exit(1);
 	}
@@ -305,10 +296,18 @@ static void loopMain(void)
 //    if(dhcp->relayfd > 0) register_fd_cleanup_on_fork(dhcp->relayfd);
 
 	/* Create an instance of IP handler*/
-	if (initWebserver(&webServer, gwOptions->gw_address, gwOptions->gw_port)) {
+	if (initWebserver(&webServer, gwOptions->tundevip, gwOptions->cap_port)) {
        debug(LOG_ERR, "Could not create web server: %s", strerror(errno));
        exit(1);
 	}
+
+
+	/* Initializes the auth server */
+    if (initAuthserver(&authserver, gwOptions->tundevip, gwOptions->auth_port)) {
+        debug(LOG_ERR, "Could not create Auth server: %s", strerror(errno));
+        exit(1);
+    }
+    authserver->gateway = homeGateway;
 
     debug(LOG_DEBUG, "Reg select tun device %s with fd %d", homeGateway->gwTun.devname, homeGateway->gwTun.fd);
     net_select_reg(&sctx,
@@ -333,24 +332,15 @@ static void loopMain(void)
           homeGateway->rawIf[i].sctx = &sctx;
 	}
 
-
 //    register_fd_cleanup_on_fork(webserver->serverSock);
-
     debug(LOG_DEBUG, "Reg select websvr %s with fd %d", webServer->host, webServer->serverSock);
     /*Jerome: Add J-module*/
     net_select_reg(&sctx, webServer->serverSock,
                    SELECT_READ, (select_callback)rcvHttpConnection,
 				   webServer, 0);
 
-	/* Initializes the auth server */
-    debug(LOG_NOTICE, "Creating Auth server on %s:%d", gwOptions->gw_address, gwOptions->auth_port);
-    if (initAuthserver(&authserver, gwOptions->gw_address, gwOptions->auth_port)) {
-        debug(LOG_ERR, "Could not create Auth server: %s", strerror(errno));
-        exit(1);
-    }
-    authserver->gateway = homeGateway;
-
     /*Jerome: Add J-module*/
+    debug(LOG_DEBUG, "Reg select authserver %s with fd %d", authserver->host, authserver->serverSock);
     net_select_reg(&sctx, authserver->serverSock,
                    SELECT_READ, (select_callback)authConnect,
 				   authserver, 0);
@@ -375,7 +365,6 @@ static void loopMain(void)
 	End, Jerome*/
 
     checkGwOnline();
-    debug(LOG_NOTICE, "Waiting for connections");
     while (1) {
     	/*Jerome, J-Module add*/
 		mainclock_tick();
@@ -411,14 +400,13 @@ static void loopMain(void)
 /*main() */
 int main(int argc, char **argv)
 {
-
 	s_gwOptions *gwOptions = get_gwOptions();
 	initOptions();
 
 	parseCommandline(argc, argv);
 
     /* Initialize the config */
-	readConfig(gwOptions->configfile);
+	readConfile(gwOptions->configfile);
 	valiConfig();
 
     /* Init the signals to catch chld/quit/etc */
@@ -475,6 +463,12 @@ void closeFds()
 		}
 	}
 
+	if(authserver){
+		if(authserver->serverSock > 0){
+			close(authserver->serverSock);
+			authserver->serverSock = 0;
+		}
+	}
 }
 
 /** Exits cleanly after cleaning up the firewall.

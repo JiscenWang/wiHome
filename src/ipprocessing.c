@@ -197,11 +197,11 @@ static int initMacHash(struct gateway_t *this, int listsize) {
   if (!((this)->hash =
 	calloc(sizeof(struct ipconnections_t *), (this)->hashsize))) {
     /* Failed to allocate memory for hash members */
-    return -1;
+    return NON_ZERO_FAIL;
   }
 
   debug(LOG_DEBUG, "hash table size %d (%d)",   this->hashsize, listsize);
-  return 0;
+  return ZERO_SUCCESS;
 }
 
 
@@ -336,7 +336,7 @@ int ip_newIp(struct ippool_t *this,
     /* If IP was already allocated we can not use it */
     if ((p2) && (p2->in_use)) {
       p2 = NULL;
-      return WH_FAIL;
+      return NON_ZERO_FAIL;
     }
   }
 
@@ -344,7 +344,7 @@ int ip_newIp(struct ippool_t *this,
   if (!p2) {
     if (!this->firstdyn) {
       debug(LOG_ERR, "No more dynamic addresses available");
-      return WH_FAIL;
+      return NON_ZERO_FAIL;
     }
     else {
       p2 = this->firstdyn;
@@ -371,9 +371,9 @@ int ip_newIp(struct ippool_t *this,
     *member = p2;
     /*Jerome TBD for print if necessery*/
     //    ippool_print(0, this);
-    return WH_SUCC; /* Success */
+    return ZERO_SUCCESS; /* Success */
   }
-  return WH_FAIL;
+  return NON_ZERO_FAIL;
 }
 
 
@@ -523,7 +523,73 @@ static int ip_newPool(struct ippool_t **this, char *dyn, int start, int end) {
 }
 
 
-static size_t icmpfrag(struct gateway_t *this,
+static size_t icmpErrReport(struct gateway_t *this,
+		uint8_t *pack, size_t plen, uint8_t errtype, uint8_t errcode, uint8_t *orig_pack) {
+  /*
+    0                   1                   2                   3
+    0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+    |     Type      |     Code      |          Checksum             |
+    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+    |           unused = 0          |         Next-Hop MTU          |
+    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+    |      Internet Header + 64 bits of Original Data Datagram      |
+    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+
+    Used when we recived a truncated (from recvfrom() where our buffer
+    is smaller than IP packet length) IP packet.
+  */
+
+  size_t icmp_req_len = PKT_IP_HLEN + 8;
+
+  size_t icmp_ip_len = PKT_IP_HLEN + sizeof(struct pkt_icmphdr_t) +
+      4 + icmp_req_len;
+
+  size_t icmp_full_len = icmp_ip_len + sizeofeth(orig_pack);
+
+  struct pkt_iphdr_t  *orig_pack_iph  = pkt_iphdr(orig_pack);
+  struct pkt_ethhdr_t *orig_pack_ethh = pkt_ethhdr(orig_pack);
+
+  if (icmp_full_len > plen) return 0;
+
+  memset(pack, 0, icmp_full_len);
+  copy_ethproto(orig_pack, pack);
+
+  {
+    struct pkt_ethhdr_t *pack_ethh  = pkt_ethhdr(pack);
+    struct pkt_iphdr_t *pack_iph = pkt_iphdr(pack);
+    struct pkt_icmphdr_t *pack_icmph;
+
+    /* eth */
+    memcpy(pack_ethh->dst, orig_pack_ethh->src, PKT_ETH_ALEN);
+    memcpy(pack_ethh->src, orig_pack_ethh->dst, PKT_ETH_ALEN);
+
+    /* ip */
+    pack_iph->version_ihl = PKT_IP_VER_HLEN;
+    pack_iph->saddr = this->ourip.s_addr;
+    pack_iph->daddr = orig_pack_iph->saddr;
+    pack_iph->protocol = PKT_IP_PROTO_ICMP;
+    pack_iph->ttl = 0x10;
+    pack_iph->tot_len = htons(icmp_ip_len);
+
+    pack_icmph = pkt_icmphdr(pack);
+    pack_icmph->type = errtype;
+    pack_icmph->code = errcode;
+
+    /* go beyond icmp header and fill in next hop MTU */
+    pack_icmph++;
+    pack_icmph->check = htons(this->mtu);
+
+    memcpy(pack + (icmp_full_len - icmp_req_len),
+	   orig_pack + sizeofeth(orig_pack), icmp_req_len);
+
+    chksum(pack_iph);
+  }
+
+  return icmp_full_len;
+}
+
+static size_t icmpBadIp(struct gateway_t *this,
 		uint8_t *pack, size_t plen, uint8_t *orig_pack) {
   /*
     0                   1                   2                   3
@@ -589,7 +655,6 @@ static size_t icmpfrag(struct gateway_t *this,
   return icmp_full_len;
 }
 
-
 /* Compare a MAC address to the addresses given in the macallowed option */
 int static maccmp(unsigned char *mac, s_gwOptions *option) {
   int i;
@@ -626,14 +691,14 @@ static int addConnection(struct gateway_t *this, struct ipconnections_t **conn) 
 
     if (connections == DHCP_MAX_CLIENTS) {
       debug(LOG_ERR, "reached max connections %d!", DHCP_MAX_CLIENTS);
-      return -1;
+      return NON_ZERO_FAIL;
     }
 
     ++connections;
 
     if (!(*conn = calloc(1, sizeof(struct ipconnections_t)))) {
       debug(LOG_ERR, "Out of memory!");
-      return -1;
+      return NON_ZERO_FAIL;
     }
 
   } else {
@@ -665,7 +730,7 @@ static int addConnection(struct gateway_t *this, struct ipconnections_t **conn) 
 
   this->firstusedconn = *conn;
 
-  return 0; /* Success */
+  return ZERO_SUCCESS; /* Success */
 }
 
 static
@@ -824,11 +889,11 @@ int initIpHandling(struct gateway_t *pgateway) {
   /* Allocate ippool for dynamic IP address allocation */
 	if (ip_newPool(&pgateway->ippool, gwOptions->dhcpdynip, 0, 0)) {
        debug(LOG_ERR, "Failed to allocate IP pool!");
-       return -1;
+       return NON_ZERO_FAIL;
      }
 
-  if (initMacHash(pgateway, DHCP_HASH_TABLE))
-    return -1; /* Failed to allocate hash tables */
+  if (initMacHash(pgateway, DHCP_HASH_TABLE) == NON_ZERO_FAIL)
+    return NON_ZERO_FAIL; /* Failed to allocate hash tables */
 
   /* Initialise various variables */
   pgateway->lease = DHCP_LEASE_TIME;
@@ -837,7 +902,7 @@ int initIpHandling(struct gateway_t *pgateway) {
   /* Initialise call back functions
   dhcp->cb_data_ind = NULL;
 */
-  return 0;
+  return ZERO_SUCCESS;
 }
 
 
@@ -847,7 +912,7 @@ int initIpHandling(struct gateway_t *pgateway) {
  */
 int raw_rcvIp(struct rawif_in *ctx, uint8_t *pack, size_t len) {
   struct gateway_t *this = ctx->parent;
-	int rawifindex = ctx->idx;
+  int rawifindex = ctx->idx;
 
   struct pkt_ethhdr_t *pack_ethh = pkt_ethhdr(pack);
   struct pkt_iphdr_t  *pack_iph  = pkt_iphdr(pack);
@@ -870,12 +935,12 @@ int raw_rcvIp(struct rawif_in *ctx, uint8_t *pack, size_t len) {
 
   if (len < PKT_IP_HLEN + PKT_ETH_HLEN + 4) {
     debug(LOG_ERR, "IP: too short");
-    return 0;
+    return ZERO_CONTINUE;
   }
 
   if ((pack_iph->version_ihl & 0xf0) != 0x40) {
     debug(LOG_DEBUG, "IP: dropping non-IPv4");
-    return 0;
+    return ZERO_CONTINUE;
   }
 
   srcaddr.s_addr = pack_iph->saddr;
@@ -890,7 +955,7 @@ int raw_rcvIp(struct rawif_in *ctx, uint8_t *pack, size_t len) {
       (memcmp(pack_ethh->dst, broadcastmac, PKT_ETH_ALEN))) {
 		 debug(LOG_DEBUG, "Not for our MAC, or broadcast: "MAC_FMT"",
 	               MAC_ARG(pack_ethh->dst));
-		 return 0;
+		 return ZERO_CONTINUE;
   }
 
   /*
@@ -909,17 +974,17 @@ int raw_rcvIp(struct rawif_in *ctx, uint8_t *pack, size_t len) {
 
       debug(LOG_ERR, "Sending fragmentation ICMP");
       gw_sendDlData(this, rawifindex, pack_ethh->src, icmp_pack,
-		icmpfrag(this, icmp_pack, sizeof(icmp_pack), pack));
+    		  icmpErrReport(this, icmp_pack, sizeof(icmp_pack), 3, 4, pack));
     }
 
-    return 0;
+    return ZERO_CONTINUE;
   }
 
   /* Validate IP header length */
   if ((pack_iph->version_ihl & 0xf) < 5 ||
       (pack_iph->version_ihl & 0xf) * 4 > iph_tot_len) {
     debug(LOG_ERR, "dropping invalid-IPv4");
-    return 0;
+    return ZERO_CONTINUE;
   }
 
   /*
@@ -929,11 +994,11 @@ int raw_rcvIp(struct rawif_in *ctx, uint8_t *pack, size_t len) {
 
   if (iph_tot_len > this->mtu && (pack_iph->opt_off_high & 64)) {
     uint8_t icmp_pack[1500];
-    debug(LOG_ERR, "ICMP frag forbidden for IP packet with length %d > %d",
+    	debug(LOG_ERR, "ICMP frag forbidden for IP packet with length %d > %d",
              iph_tot_len, this->mtu);
-    gw_sendDlData(this, rawifindex, pack_ethh->src, icmp_pack,
-	      icmpfrag(this, icmp_pack, sizeof(icmp_pack), pack));
-    return 0;
+    	gw_sendDlData(this, rawifindex, pack_ethh->src, icmp_pack,
+    			icmpErrReport(this, icmp_pack, sizeof(icmp_pack), 3, 4, pack));
+    	return ZERO_CONTINUE;
   }
 
   /*
@@ -956,7 +1021,7 @@ int raw_rcvIp(struct rawif_in *ctx, uint8_t *pack, size_t len) {
     	debug(LOG_ERR, "dropping udp packet; ip-len=%d != udp-len=%d + ip-hdr=20",
                (int) iph_tot_len,
                (int) udph_len);
-    	return 0;
+    	return ZERO_CONTINUE;
     }
   }
 
@@ -965,7 +1030,7 @@ int raw_rcvIp(struct rawif_in *ctx, uint8_t *pack, size_t len) {
     if (iph_tot_len < PKT_IP_HLEN + PKT_TCP_HLEN) {
       debug(LOG_ERR, "dropping tcp packet; ip-len=%d",
                (int) iph_tot_len);
-      return 0;
+      return ZERO_CONTINUE;
     }
   }
 
@@ -976,33 +1041,57 @@ int raw_rcvIp(struct rawif_in *ctx, uint8_t *pack, size_t len) {
     debug(LOG_DEBUG, "IP handler: MAC Address "MAC_FMT" found with IP %s",
     		MAC_ARG(pack_ethh->src), inet_ntoa(conn->hisip));
   } else {
-	  /*First connection with home gateway, with(statically set) or without(dynamically) IP address*/
+	  /*First connection with home gateway, with(statically set) or without(dynamically later) IP address*/
 	  struct in_addr reqaddr;
 	  memcpy(&reqaddr.s_addr, &pack_iph->saddr, PKT_IP_ALEN);
 
-	  /* Allocate new connection without recording IP address*/
-	  if (ip_newConnection(this, &conn, pack_ethh->src)) {
-		  debug(LOG_DEBUG, "dropping packet; fail of adding connections");
-		  return 0; /* Out of connections */
-	  }
-	  conn->rawIdx = rawifindex;
-
 	  if(reqaddr.s_addr != 0){
-		  debug(LOG_DEBUG, "IP: MAC address "MAC_FMT" not found with statically set IP (%s), add new connection",
-	    		MAC_ARG(pack_ethh->src),
-				inet_ntoa(reqaddr));
+		  /*Check the address is allocated by the GW or not*/
+		  struct ippoolm_t *ipm;
+		  struct ipconnections_t *peerconn = 0;
+		  if (ippoolGetip(this->ippool, &ipm, &reqaddr) == NON_ZERO_FAIL) {
+			  debug(LOG_DEBUG, "IP: MAC address "MAC_FMT" not found with statically set IP (%s), add new connection",
+		    		MAC_ARG(pack_ethh->src),
+					inet_ntoa(reqaddr));
+		  }else{
+			  /*The IP already allocated by the GW, peerconn is not the same as conn*/
+			  peerconn = (struct ipconnections_t *)ipm->peer;
+			  if(peerconn == NULL){
+				  /*Something is wrong, delete the IP record and return*/
+				  ip_freeIp(this->ippool, ipm);
+				  return NON_ZERO_FAIL;
+			  }else{
+				  if(memcmp(peerconn->hismac, pack_ethh->src, PKT_ETH_ALEN)){
+					  /*New client set static IP, conflicting with an existing client, reject it*/
+					  uint8_t icmp_pack[1500];
+					  debug(LOG_ERR, "ICMP frag forbidden for IP packet with length %d > %d",
+							  iph_tot_len, this->mtu);
+					  gw_sendDlData(this, rawifindex, pack_ethh->src, icmp_pack,
+							  icmpErrReport(this, icmp_pack, sizeof(icmp_pack), 12, 0, pack));
+					  return NON_ZERO_FAIL;
+				  }else{
+					  /*The same client access again, just continue to accept it*/
+				  }
+			  }
+		  }
 	  }else{
 		  debug(LOG_DEBUG, "IP: MAC address "MAC_FMT" not found without IP, add new connection",
 	    		MAC_ARG(pack_ethh->src));
 	  }
 
+	  /* Allocate new connection without allocating IP address*/
+	  if (ip_newConnection(this, &conn, pack_ethh->src) == NON_ZERO_FAIL) {
+		  debug(LOG_DEBUG, "dropping packet; fail of adding connections");
+		  return NON_ZERO_FAIL; /* Out of connections */
+	  }
+	  conn->rawIdx = rawifindex;
 	  /*Recording IP of new connection which could be 0.0.0.0*/
 	  conn->hisip.s_addr = reqaddr.s_addr;
   }
 
   if (!conn) {
     debug(LOG_ERR, "Dropping packet without record in home gateway");
-    return 0;
+    return ZERO_CONTINUE;
   }
 
   /*New Connection will be recorded during BOOTPS unless it is statically set IP*/
@@ -1016,14 +1105,14 @@ int raw_rcvIp(struct rawif_in *ctx, uint8_t *pack, size_t len) {
     debug(LOG_DEBUG, "IP handler: new dhcp/bootps request being processed for "MAC_FMT"",
                MAC_ARG(pack_ethh->src));
     dhcpHandler(ctx, pack, len);
-    return 0;
+    return ZERO_CONTINUE;
   }
   /*Ended for DHCP (BOOTPS) packets */
 
   /*After DHCP IP allocation or static set IP, the connection must have an IP address now*/
   if(conn->hisip.s_addr == 0){
     debug(LOG_DEBUG, "Connection without his IP address, dropping packet");
-    return -1;
+    return NON_ZERO_STOP;
   }
 
   /*Jerome Changes procedure. Ignore request if IP address was not allocated by this DHCP*/
@@ -1058,20 +1147,20 @@ int raw_rcvIp(struct rawif_in *ctx, uint8_t *pack, size_t len) {
   if(!ipm){
 	  /*Jerome: should not reach here*/
 	  debug(LOG_ERR, "IP: failed to allocated IP!");
-	    return -1;
+	    return NON_ZERO_STOP;
   }
   /*End. Jereome */
 
   if (pack_iph->saddr != conn->hisip.s_addr) {
 	debug(LOG_ERR, "Received packet with spoofed source!");
-    return 0;
+    return ZERO_CONTINUE;
   }
 
   if (pack_iph->protocol == PKT_IP_PROTO_UDP) {
       if ((pack_iph->daddr & gwOptions->netmask.s_addr) ==
           (0xffffffff & ~gwOptions->netmask.s_addr)) {
         debug(LOG_DEBUG, "Broadcasted UDP to port %d", ntohs(pack_udph->dst));
-        return 0;
+        return ZERO_CONTINUE;
       }
   }
 
@@ -1079,12 +1168,12 @@ int raw_rcvIp(struct rawif_in *ctx, uint8_t *pack, size_t len) {
   if (pack_iph->protocol == PKT_IP_PROTO_UDP &&
 		  pack_udph->dst == htons(DHCP_DNS)) {
 	  debug(LOG_DEBUG, "A DNS request!");
-	  if (dnsHandler(conn, pack, &len) == WH_GOON) {
+	  if (dnsHandler(conn, pack, &len) == ZERO_CONTINUE) {
 		  allowed = 1; /* Is allowed DNS */
 	  }else{
 		  /* Drop DNS if dhcp_dns returns 0*/
 	     debug(LOG_DEBUG, "A DNS is handled in dnsHandler()!");
-	     return 0;
+	     return ZERO_CONTINUE;
 	  }
   }
   /* End of DNS handling part*/
@@ -1094,7 +1183,7 @@ int raw_rcvIp(struct rawif_in *ctx, uint8_t *pack, size_t len) {
 		  & (pack_iph->daddr != gwOptions->tundevip.s_addr)){
 	  /*Local data transfer is routing to peer IP*/
 	  gw_routeData(conn->parent, dstaddr, pack, len);
-	  return 0;
+	  return ZERO_CONTINUE;
   }
 
   conn->lasttime = mainclock_tick();
@@ -1111,18 +1200,18 @@ int raw_rcvIp(struct rawif_in *ctx, uint8_t *pack, size_t len) {
       if (!allowed){
     	  if(checkHttpDnat(conn, pack, len, 1, &do_checksum)){
     	       debug(LOG_DEBUG, "dropping packet; not nat'ed");
-    	       return 0;
+    	       return ZERO_CONTINUE;
     	  }
       }
       break;
 
     case DROP_CLIENT:
       debug(LOG_DEBUG, "dropping packet; auth-drop");
-      return 0;
+      return ZERO_CONTINUE;
 
     default:
       debug(LOG_DEBUG, "dropping packet; unhandled auth state %d",   authstate);
-      return 0;
+      return ZERO_CONTINUE;
   }
 
   if (do_checksum)
@@ -1137,7 +1226,7 @@ int raw_rcvIp(struct rawif_in *ctx, uint8_t *pack, size_t len) {
   debug(LOG_DEBUG, "DHCP sending packet to IP %s of length %d", inet_ntoa(dstaddr), len);
 
   gw_sendUlData(conn, pack, len);
-  return 0;
+  return ZERO_CONTINUE;
 }
 
 
@@ -1151,8 +1240,8 @@ int ip_newConnection(struct gateway_t *this, struct ipconnections_t **conn,
 	s_gwOptions *gwOptions = get_gwOptions();
 	debug(LOG_DEBUG, "IP newconn: "MAC_FMT"", MAC_ARG(hwaddr));
 
-	if (addConnection(this, conn) != 0)
-		return -1;
+	if (addConnection(this, conn) == NON_ZERO_FAIL)
+		return NON_ZERO_FAIL;
 
 	(*conn)->inuse = 1;
 	(*conn)->parent = this;
@@ -1178,7 +1267,7 @@ int ip_newConnection(struct gateway_t *this, struct ipconnections_t **conn,
 	(*conn)->dns1 = gwOptions->dns1;
 	(*conn)->dns2 = gwOptions->dns2;
 
-	return 0; /* Success */
+	return ZERO_SUCCESS; /* Success */
 }
 
 
@@ -1202,9 +1291,9 @@ int ip_allocClientIP(struct ipconnections_t *conn, struct in_addr *addr,
   }
   else {
 	/* Allocate IP address */
-	if (ip_newIp(pgateway->ippool, &ipm, &reqip) == WH_FAIL) {
+	if (ip_newIp(pgateway->ippool, &ipm, &reqip) == NON_ZERO_FAIL) {
 		debug(LOG_ERR, "Failed to allocate either static or dynamic IP address");
-		return WH_FAIL;
+		return NON_ZERO_FAIL;
 	}
 
 	debug(LOG_DEBUG, "Successfully allocate client MAC="MAC_FMT" assigned IP %s" ,
@@ -1219,13 +1308,13 @@ int ip_allocClientIP(struct ipconnections_t *conn, struct in_addr *addr,
 	  conn->ourip.s_addr = gwOptions->tundevip.s_addr;
 	  ipm->peer = conn;
    }else{
-	   return WH_FAIL;
+	   return NON_ZERO_FAIL;
    }
 
   if (conn->authstate != AUTH_CLIENT)
 	  conn->authstate = NEW_CLIENT;
 
-  return WH_SUCC;
+  return ZERO_SUCCESS;
 }
 
 
@@ -1255,16 +1344,12 @@ int getMacHash(struct gateway_t *this, struct ipconnections_t **conn,
 .Delete a client's instance from the gateway
  **/
 void ip_relConnection(struct gateway_t *this, uint8_t *hwaddr, struct ipconnections_t *conn) {
-	if(!conn){
-		 if (getMacHash(this, &conn, hwaddr)) {
-			 return;
-		 }
-	}
+	if(!conn)return;
 
 	debug(LOG_INFO, "DHCP Released MAC="MAC_FMT" IP=%s",
 	         MAC_ARG(conn->hismac), inet_ntoa(conn->hisip));
 
-	  if (conn->uplink) {
+	if (conn->uplink) {
 	    struct ippoolm_t *member = (struct ippoolm_t *) conn->uplink;
 
 	    if (member->in_use && (!conn || !conn->is_reserved)) {
@@ -1273,45 +1358,45 @@ void ip_relConnection(struct gateway_t *this, uint8_t *hwaddr, struct ipconnecti
 	               inet_ntoa(member->addr));
 	      }
 	    }
-	  }
+	}
 
-	  debug(LOG_DEBUG, "DHCP freeconn: "MAC_FMT,
-	           MAC_ARG(conn->hismac));
+	debug(LOG_DEBUG, "DHCP freeconn: "MAC_FMT,
+			MAC_ARG(conn->hismac));
 
-	  /* First remove from hash table */
-	  delMacHash(this, conn);
+	/* First remove from hash table */
+	delMacHash(this, conn);
 
-	  /* Remove from link of used */
-	  if ((conn->next) && (conn->prev)) {
-	    conn->next->prev = conn->prev;
+	/* Remove from link of used */
+	if ((conn->next) && (conn->prev)) {
+		conn->next->prev = conn->prev;
 	    conn->prev->next = conn->next;
-	  }
-	  else if (conn->next) { /* && prev == 0 */
+	}
+	else if (conn->next) { /* && prev == 0 */
 	    conn->next->prev = NULL;
 	    this->firstusedconn = conn->next;
-	  }
-	  else if (conn->prev) { /* && next == 0 */
+	}
+	else if (conn->prev) { /* && next == 0 */
 	    conn->prev->next = NULL;
 	    this->lastusedconn = conn->prev;
-	  }
-	  else { /* if ((next == 0) && (prev == 0)) */
+	}
+	else { /* if ((next == 0) && (prev == 0)) */
 	    this->firstusedconn = NULL;
 	    this->lastusedconn = NULL;
-	  }
+	}
 
-	  /* Initialise structures */
-	  memset(conn, 0, sizeof(*conn));
+	/* Initialise structures */
+	memset(conn, 0, sizeof(*conn));
 
-	  /* Insert into link of free */
-	  if (this->firstfreeconn) {
+	/* Insert into link of free */
+	if (this->firstfreeconn) {
 	    this->firstfreeconn->prev = conn;
-	  }
-	  else { /* First insert */
+	}
+	else { /* First insert */
 	    this->lastfreeconn = conn;
-	  }
+	}
 
-	  conn->next = this->firstfreeconn;
-	  this->firstfreeconn = conn;
+	conn->next = this->firstfreeconn;
+	this->firstfreeconn = conn;
 }
 
 

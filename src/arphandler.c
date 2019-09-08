@@ -83,9 +83,9 @@ int raw_rcvArp(struct rawif_in *ctx, uint8_t *pack, size_t len) {
   struct pkt_ethhdr_t *pack_ethh = pkt_ethhdr(pack);
   struct arp_packet_t *pack_arp = pkt_arppkt(pack);
 
-	s_gwOptions *gwOptions = get_gwOptions();
-	struct gateway_t *this = ctx->parent;
-	int rawifindex = ctx->idx;
+  s_gwOptions *gwOptions = get_gwOptions();
+  struct gateway_t *this = ctx->parent;
+  int rawifindex = ctx->idx;
   struct ipconnections_t *conn = NULL;
 
   /* get sender IP address */
@@ -101,7 +101,7 @@ int raw_rcvArp(struct rawif_in *ctx, uint8_t *pack, size_t len) {
   if (len < sizeofeth(pack) + sizeof(struct arp_packet_t)) {
     debug(LOG_ERR, "ARP too short %d < %d", (int) len,
            (int) (sizeofeth(pack) + sizeof(struct arp_packet_t)));
-    return 0;
+    return ZERO_CONTINUE;
   }
 
   if (ntohs(pack_arp->hrd) != 1 ||       /* Ethernet Hardware */
@@ -109,13 +109,13 @@ int raw_rcvArp(struct rawif_in *ctx, uint8_t *pack, size_t len) {
       pack_arp->pln != PKT_IP_ALEN) {    /* IP Address Size */
 	  	  debug(LOG_ERR, "ARP reject hrd=%d hln=%d pln=%d",
            ntohs(pack_arp->hrd), pack_arp->hln, pack_arp->pln);
-    return 0;
+    return ZERO_CONTINUE;
   }
 
   /* Check that this is ARP request */
   if (pack_arp->op != htons(DHCP_ARP_REQUEST)) {
     debug(LOG_DEBUG, "ARP OP %d: Received other ARP than request!", ntohl(pack_arp->op));
-    return 0;
+    return ZERO_CONTINUE;
   }
 
   /* Check that MAC address is our MAC or Broadcast */
@@ -123,19 +123,19 @@ int raw_rcvArp(struct rawif_in *ctx, uint8_t *pack, size_t len) {
   if ((memcmp(pack_ethh->dst, this->rawIf[rawifindex].hwaddr, PKT_ETH_ALEN)) &&
       (memcmp(pack_ethh->dst, broadcastmac, PKT_ETH_ALEN))) {
     debug(LOG_DEBUG, "ARP: Received ARP request for other destination!");
-    return 0;
+    return ZERO_CONTINUE;
   }
 
   /* Check to see if we know MAC address. */
   if (getMacHash(this, &conn, pack_arp->sha)) {
 	/* Keep silent for ARP if does not know its MAC. */
     debug(LOG_DEBUG, "ARP: Address not found with IP: %s", inet_ntoa(reqaddr));
-    return 0;
+    return ZERO_CONTINUE;
   }else{
 	  if (!conn->hisip.s_addr) {
 	    debug(LOG_DEBUG, "ARP: request did not come from known client asking for target: %s",
 	    		inet_ntoa(taraddr));
-	    return 0;
+	    return ZERO_CONTINUE;
 	  }
 
 	  /* Is ARP request for clients own address: Ignore */
@@ -165,7 +165,7 @@ int raw_rcvArp(struct rawif_in *ctx, uint8_t *pack, size_t len) {
   if (!memcmp(&reqaddr.s_addr, &taraddr.s_addr, 4)) {
     debug(LOG_DEBUG, "ARP: Ignoring gratuitous arp with IP: %s",
              inet_ntoa(taraddr));
-    return 0;
+    return ZERO_CONTINUE;
   }
 
 /*Jerome: no authstating process in ARP
@@ -201,11 +201,11 @@ End, Jerome*/
 
 	  debug(LOG_DEBUG, "ARP: Did not ask for gateway address: %s, but ask for target: %s",
     		 inet_ntoa(gwOptions->tundevip), inet_ntoa(taraddr));
-     return 0;
+     return ZERO_CONTINUE;
   }
 
   sendARP(this, rawifindex, pack, len);
-  return 0;
+  return ZERO_CONTINUE;
 }
 
 

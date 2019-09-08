@@ -273,12 +273,11 @@ static int matchRedirectHost(uint8_t *r, char *name) {
  *   returns: 0 = do not forward, 1 = forward DNS
  */
 int dnsHandler(struct ipconnections_t *conn, uint8_t *pack, size_t *plen) {
-
-	s_gwOptions *gwOptions = get_gwOptions();
+  s_gwOptions *gwOptions = get_gwOptions();
   if (*plen < DHCP_DNS_HLEN + sizeofudp(pack)) {
 
     debug(LOG_DEBUG, "bad DNS packet of length %zu",   *plen);
-    return WH_STOP;
+    return NON_ZERO_STOP;
 
   } else {
     struct dns_packet_t *dnsp = pkt_dnspkt(pack);
@@ -300,7 +299,7 @@ int dnsHandler(struct ipconnections_t *conn, uint8_t *pack, size_t *plen) {
     /* it was a response? shouldn't be */
 	if (((flags & 0x8000) >> 15) == 1) {
 		debug(LOG_DEBUG, "Dropping unexpected DNS response");
-		return WH_STOP;
+		return NON_ZERO_STOP;
 	}
 
 	memset(q, 0, sizeof(q));
@@ -310,7 +309,7 @@ int dnsHandler(struct ipconnections_t *conn, uint8_t *pack, size_t *plen) {
 				(uint8_t *)dnsp, olen, q, sizeof(q))) {
 			debug(LOG_WARNING, "Dropping unexpected DNS request");
 			sendDnsNak(conn, pack, *plen);
-			return WH_STOP;
+			return NON_ZERO_STOP;
 		}
 	}
 
@@ -328,15 +327,15 @@ int dnsHandler(struct ipconnections_t *conn, uint8_t *pack, size_t *plen) {
         if (match) {
         	debug(LOG_DEBUG, "It was a matching query!\n");
         	sendDnsRsp(conn, pack, *plen);
-        	return WH_STOP;
+        	return NON_ZERO_STOP;
         }else{
         	if(!gwOptions->gw_online){
             	debug(LOG_DEBUG, "Gateway if offline, return all DNS with GW's IP!\n");
             	sendDnsRsp(conn, pack, *plen);
-            	return WH_STOP;
+            	return NON_ZERO_STOP;
         	}
         }
       }
-      return WH_GOON;
+      return ZERO_CONTINUE;
   }
 }

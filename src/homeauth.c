@@ -271,15 +271,17 @@ int authConnect(authsvr *server, int index){
 
 
 /* Initializes the web server */
-int initAuthserver(httpd **ppserver, char *address, int port){
+int initAuthserver(httpd **ppserver, struct in_addr *svraddr, int port){
 	authsvr *newServer;
     int server_sockfd = 0;
     int opt;
     struct sockaddr_in server_sockaddr;
+	char *address = inet_ntoa(svraddr);
 
     /*
      ** Create the handle and setup it's basic config
      */
+    debug(LOG_NOTICE, "Creating Auth server on %s:%d", address, gwOptions->auth_port);
     newServer = malloc(sizeof(authsvr));
     if (newServer == NULL)
         return -1;
@@ -341,5 +343,5 @@ int initAuthserver(httpd **ppserver, char *address, int port){
 /* closing the web server */
 int endAuthserver(httpd *pserver){
 	httpdDestroy(pserver);
-	return WH_GOON;
+	return ZERO_CONTINUE;
 }
