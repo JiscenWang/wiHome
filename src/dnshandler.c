@@ -335,7 +335,10 @@ int dnsHandler(struct ipconnections_t *conn, uint8_t *pack, size_t *plen) {
             	return NON_ZERO_STOP;
         	}
         }
+
+        return ZERO_CONTINUE;
+      }else{
+          return NON_ZERO_STOP;
       }
-      return ZERO_CONTINUE;
   }
 }

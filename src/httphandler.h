@@ -13,7 +13,7 @@
 void thread_httpd(void *args);
 
 int rcvHttpConnection(httpd *server, int index);
-int initWebserver(httpd **ppserver, struct in_addr *svraddr, int port);
+int initWebserver(httpd **ppserver, struct in_addr svraddr, int port);
 int endWebserver(httpd *pserver);
 
 #endif /* SRC_HTTPHANDLER_H_ */

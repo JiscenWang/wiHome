@@ -26,6 +26,8 @@
 #include "gatewaymain.h"
 #include "../config.h"
 
+static int http_conns = 0;
+
 void send_http_page(request * r, const char *title, const char *message)
 {
 
@@ -220,6 +222,7 @@ void thread_httpd(void *args)
 		debug(LOG_DEBUG, "No valid request received from %s", r->clientAddr);
 	}
 	debug(LOG_DEBUG, "Closing connection with %s", r->clientAddr);
+
 	httpdEndRequest(r);
 }
 
@@ -268,9 +271,15 @@ int rcvHttpConnection(httpd *server, int index){
         *(params + 1) = r;
         *params = server;
 
+        http_conns++;
+        if(http_conns > DEFAULT_HTTPDMAXCONN){
+            debug(LOG_DEBUG, "Max number of HTTP clients - try to connect next time!");
+            return 0;
+        }
         result = pthread_create(&tid, NULL, (void *)thread_httpd, (void *)params);
 
         if (result != 0) {
+            http_conns--;
             debug(LOG_ERR, "FATAL: Failed to create a new thread (httpd) - exiting");
             termination_handler(0);
         }
@@ -285,7 +294,7 @@ int rcvHttpConnection(httpd *server, int index){
 }
 
 /* Initializes the web server */
-int initWebserver(httpd **ppserver, struct in_addr *svraddr, int port){
+int initWebserver(httpd **ppserver, struct in_addr svraddr, int port){
 	httpd *pserver;
 	char *address = inet_ntoa(svraddr);
 

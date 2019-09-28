@@ -26,9 +26,10 @@
      char readBuf[HTTP_READ_BUF_LEN + 1], *readBufPtr, clientAddr[HTTP_IP_ADDR_LEN];
      int authRequest;
      char clientName[MAX_AUTH_NAME_LENGTH];
+     int action;   /*1: connect; 0: disconnect*/
   } authrequest;
 
-  int initAuthserver(httpd **ppserver, struct in_addr *svraddr, int port);
+  int initAuthserver(httpd **ppserver, struct in_addr svraddr, int port);
   int authConnect(authsvr *server, int index);
   int endAuthserver(httpd *pserver);
 #endif /* SRC_JAUTH_H_ */

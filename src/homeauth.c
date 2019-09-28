@@ -49,7 +49,7 @@ int authReadLine(request * r, char *destBuf, int len)
 	    r->readBufRemain = read(r->clientSock, r->readBuf, HTTP_READ_BUF_LEN);
 
 	    if (r->readBufRemain < 1)
-	        return (0);
+	        return NON_ZERO_STOP;
 	    r->readBuf[r->readBufRemain] = 0;
 	    r->readBufPtr = r->readBuf;
 	}
@@ -63,7 +63,7 @@ int authReadLine(request * r, char *destBuf, int len)
 
         if (curChar == '\n' || !isascii(curChar)) {
             *dst = 0;
-            return (1);
+            return ZERO_CONTINUE;
         }
         count++;
         if (curChar == '\r') {
@@ -74,7 +74,7 @@ int authReadLine(request * r, char *destBuf, int len)
         }
     }
     *dst = 0;
-    return (1);
+    return ZERO_CONTINUE;
 }
 
 authrequest *
@@ -122,7 +122,7 @@ authReadRequest(authsvr * server, authrequest * r)
     int count, inHeaders;
 
     count = 0;
-    while (authReadLine(r, buf, HTTP_MAX_LEN) > 0) {
+    while (authReadLine(r, buf, HTTP_MAX_LEN) == ZERO_CONTINUE) {
         count++;
         /*First line for hello handshaking*/
         if (count == 1) {
@@ -130,6 +130,7 @@ authReadRequest(authsvr * server, authrequest * r)
             while (isalpha((unsigned char)*cp2))
                 cp2++;
             *cp2 = 0;
+            /*take "HelloWorld" as the simple code*/
             if (strcasecmp(cp, "HelloWorld") == 0){
             	r->authRequest = 1;
             }else{
@@ -153,12 +154,31 @@ authReadRequest(authsvr * server, authrequest * r)
                     }
                 }
             }
+            if (strncasecmp(buf, "Action: ", 8) == 0) {
+                cp = strchr(buf, ':');
+                if (cp) {
+                    cp += 2;
+                    cp = strchr(cp, ' ') + 1;
+                    if (cp) {
+                    	if(strncasecmp(buf, "Connect", 9) == 0){
+                    		r->action = 1;
+                    	} else{
+                    		r->action = 0;
+                    	}
+                    }
+                }
+            }
             continue;
         }else{
             break;
         }
     }
-    return (0);
+
+    if(r->authRequest == 1){
+        return ZERO_SUCCESS;
+    }else{
+        return NON_ZERO_FAIL;
+    }
 }
 
 void
@@ -184,26 +204,37 @@ int authProcessRequest(authsvr * server, authrequest * r)
 	    err = inet_pton(AF_INET, r->clientAddr, &clientIP);   /* 将字符串转换为二进制 */
 	    if(err > 0){
 			debug(LOG_ERR, "inet_pton:ip,%s value is:0x%x\n", r->clientAddr, clientIP.s_addr);
-			return -1;
+			return NON_ZERO_FAIL;
 	    }
 
 		if (ippoolGetip(pgateway->ippool, &ipm, &clientIP)) {
 			debug(LOG_DEBUG, "Quit auth procedure with unknown client: %s", r->clientAddr);
-		    return -1;
+		    return NON_ZERO_FAIL;
 		}
 
 		peerconn = (struct ipconnections_t *)ipm->peer;
 
 		if (peerconn == NULL) {
 			debug(LOG_ERR, "No dnlink protocol defined for %s", r->clientAddr);
-			return 0;
+			return NON_ZERO_FAIL;
 		}
 
-		peerconn->authstate = AUTH_CLIENT;
-		peerconn->clientSock = r->clientSock;
-		peerconn->lastauthtime = mainclock_tick();
+		if(r->action == 1){
+			peerconn->authstate = AUTH_CLIENT;
+			peerconn->clientSock = r->clientSock;
+			peerconn->lastauthtime = mainclock_tick();
+			return ZERO_SUCCESS;
+		}else{
+			peerconn->authstate = NEW_CLIENT;
+			peerconn->clientSock = 0;
+			peerconn->lastauthtime = mainclock_tick();
+			//return fail to release client sock
+			return NON_ZERO_FAIL;
+		}
+	}else
+	{
+		return NON_ZERO_FAIL;
 	}
-	return 0;
 }
 
 void
@@ -219,15 +250,14 @@ thread_authsvr(void *args)
 	r = *(params + 1);
 	free(params); /* XXX We must release this ourselves. */
 
-	if (authReadRequest(authserver, r) == 0) {
-		/*
-		 * We read the request fine
-		 */
+	if (authReadRequest(authserver, r) == ZERO_SUCCESS) {
 		debug(LOG_DEBUG, "Processing auth request from %s", r->clientAddr);
-		authProcessRequest(authserver, r);
+		if(authProcessRequest(authserver, r) == NON_ZERO_FAIL){
+			debug(LOG_DEBUG, "No valid auth request received from %s", r->clientAddr);
+			authEndRequest(r);
+		}
 	}else{
-		debug(LOG_DEBUG, "No valid auth request received from %s", r->clientAddr);
-		debug(LOG_DEBUG, "Closing auth connection with %s", r->clientAddr);
+		debug(LOG_DEBUG, "Reading AUth request failed. Closing auth connection with %s", r->clientAddr);
 		authEndRequest(r);
 	}
 //	debug(LOG_DEBUG, "Closing auth connection with %s", r->clientAddr);
@@ -246,11 +276,11 @@ int authConnect(authsvr *server, int index){
     r = authGetConnection(server, NULL);
     if(r == NULL){
         debug(LOG_ERR, "Failed to allocate request memory");
-        return -1;
+        return NON_ZERO_FAIL;
     }
     if(r->clientSock < 0){
         debug(LOG_ERR, "Failed to accept a new connection");
-        return -1;
+        return NON_ZERO_FAIL;
     }
 
     debug(LOG_DEBUG, "Received authen connection from %s, spawning worker thread", r->clientAddr);
@@ -271,13 +301,13 @@ int authConnect(authsvr *server, int index){
 
 
 /* Initializes the web server */
-int initAuthserver(httpd **ppserver, struct in_addr *svraddr, int port){
+int initAuthserver(httpd **ppserver, struct in_addr svraddr, int port){
 	authsvr *newServer;
     int server_sockfd = 0;
     int opt;
     struct sockaddr_in server_sockaddr;
 	char *address = inet_ntoa(svraddr);
-
+    s_gwOptions *gwOptions = get_gwOptions();
     /*
      ** Create the handle and setup it's basic config
      */

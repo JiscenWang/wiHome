@@ -1181,7 +1181,7 @@ int raw_rcvIp(struct rawif_in *ctx, uint8_t *pack, size_t len) {
   if(((pack_iph->daddr & gwOptions->netmask.s_addr)
 		  == (gwOptions->tundevip.s_addr& gwOptions->netmask.s_addr))
 		  & (pack_iph->daddr != gwOptions->tundevip.s_addr)){
-	  /*Local data transfer is routing to peer IP*/
+	  /*Local data transfer is routing to peer IP or discarded*/
 	  gw_routeData(conn->parent, dstaddr, pack, len);
 	  return ZERO_CONTINUE;
   }
@@ -1196,7 +1196,7 @@ int raw_rcvIp(struct rawif_in *ctx, uint8_t *pack, size_t len) {
       break;
 
     case NEW_CLIENT:
-        /* Http request will be DNAT, others are dropped, unless it is allowed DNS or LAN packets*/
+      /* Http request will be DNAT, others are dropped, unless it is allowed DNS or LAN packets*/
       if (!allowed){
     	  if(checkHttpDnat(conn, pack, len, 1, &do_checksum)){
     	       debug(LOG_DEBUG, "dropping packet; not nat'ed");
